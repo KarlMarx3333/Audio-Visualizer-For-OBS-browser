@@ -8,6 +8,9 @@ export class Vectorscope2D {
     this.ctx = canvas.getContext("2d", { alpha: true });
     this._dpr = 1;
     this._fade = 0.10;
+    this._pseudoDelay = 12;
+    const qs = new URLSearchParams(location.search);
+    this._pseudo = qs.get("pseudo") === "1";
   }
 
   onResize(w,h,dpr){
@@ -26,18 +29,21 @@ export class Vectorscope2D {
     ctx.restore();
 
     const ch = frame.channels || 1;
-    const inter = frame.timeDomainInterleaved;
+    const inter = frame.waveLR;
     const mono = frame.wave;
+    const corr = frame.corr;
     let n = 0;
 
     const userGain = frame.gain || 1.0;
     let peak = 1e-6;
-    if(ch >= 2 && inter){
-      n = Math.floor(inter.length / ch);
+    const useStereo = (ch === 2 && inter);
+    const usePseudo = (!useStereo && this._pseudo && mono);
+    if(useStereo){
+      n = Math.floor(inter.length / 2);
       const step = Math.max(1, Math.floor(n / 512));
       for(let i=0;i<n;i+=step){
-        const L = inter[ch*i];
-        const R = inter[ch*i + 1];
+        const L = inter[2*i];
+        const R = inter[2*i + 1];
         peak = Math.max(peak, Math.abs(L), Math.abs(R));
       }
     }else if(mono){
@@ -70,6 +76,7 @@ export class Vectorscope2D {
 
     const pts = 1024;
     const step = Math.max(1, Math.floor(n / pts));
+    const pseudoDelay = Math.min(this._pseudoDelay, Math.max(1, n - 1));
 
     ctx.save();
     ctx.globalCompositeOperation = "lighter";
@@ -79,10 +86,15 @@ export class Vectorscope2D {
     let first = true;
     for(let i=0;i<n;i+=step){
       let L, R;
-      if(ch >= 2 && inter){
-        const base = ch*i;
+      if(useStereo){
+        const base = 2*i;
         L = inter[base] * g;
         R = inter[base+1] * g;
+      }else if(usePseudo){
+        const j = i + pseudoDelay;
+        const idx = j < n ? j : j - n;
+        L = mono[i] * g;
+        R = mono[idx] * g;
       }else{
         const v = (mono ? mono[i] : 0) * g;
         L = v; R = v;
@@ -103,10 +115,15 @@ export class Vectorscope2D {
     first = true;
     for(let i=0;i<n;i+=step){
       let L, R;
-      if(ch >= 2 && inter){
-        const base = ch*i;
+      if(useStereo){
+        const base = 2*i;
         L = inter[base] * g;
         R = inter[base+1] * g;
+      }else if(usePseudo){
+        const j = i + pseudoDelay;
+        const idx = j < n ? j : j - n;
+        L = mono[i] * g;
+        R = mono[idx] * g;
       }else{
         const v = (mono ? mono[i] : 0) * g;
         L = v; R = v;
@@ -118,6 +135,17 @@ export class Vectorscope2D {
     }
     ctx.stroke();
     ctx.restore();
+
+    const showHint = ((ch < 2 || !inter) && !usePseudo) || (corr != null && corr > 0.98);
+    if(showHint){
+      ctx.save();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.fillStyle = "rgba(255,255,255,0.35)";
+      ctx.font = `${Math.max(10, Math.floor(11*this._dpr))}px system-ui, -apple-system, Segoe UI, Arial, sans-serif`;
+      ctx.textBaseline = "top";
+      ctx.fillText("MONO / CORR>=0.98 - use stereo input for blob", 8, 8);
+      ctx.restore();
+    }
   }
 
   destroy(){}

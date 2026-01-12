@@ -172,6 +172,7 @@ connectAudioWS({
 
 let lastSpectrum = null;
 let lastWave = null;
+let lastWaveLR = null;
 
 function smoothArray(prev, cur, alpha){
   if(!prev || prev.length !== cur.length){
@@ -194,24 +195,29 @@ function animate(){
   const alpha = Number(vsmoothEl.value);
 
   const spectrum = latestFrame.spectrum;
-  const wave = latestFrame.timeDomain;
+  const waveLR = latestFrame.timeDomain;
   const ch = latestFrame.channels;
 
   let monoWave;
   if(ch === 1){
-    monoWave = wave;
+    monoWave = waveLR;
   }else{
-    const n = Math.floor(wave.length / 2);
+    const n = Math.floor(waveLR.length / 2);
     if(!viz._mono || viz._mono.length !== n) viz._mono = new Float32Array(n);
     const m = viz._mono;
     for(let i=0;i<n;i++){
-      m[i] = 0.5*(wave[2*i] + wave[2*i+1]);
+      m[i] = 0.5*(waveLR[2*i] + waveLR[2*i+1]);
     }
     monoWave = m;
   }
 
   lastSpectrum = smoothArray(lastSpectrum, spectrum, alpha);
   lastWave = smoothArray(lastWave, monoWave, alpha);
+  if(ch === 2){
+    lastWaveLR = smoothArray(lastWaveLR, waveLR, alpha);
+  }else{
+    lastWaveLR = null;
+  }
 
   const frame = {
     frameId: latestFrame.frameId,
@@ -221,7 +227,7 @@ function animate(){
     peak: latestFrame.peak,
     corr: latestFrame.corr,
     overlay: embed,
-    timeDomainInterleaved: latestFrame.timeDomain,
+    waveLR: lastWaveLR,
     spectrum: lastSpectrum,
     wave: lastWave,
     gain,
