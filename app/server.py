@@ -19,6 +19,7 @@ VISUALIZERS = [
     {"id": "spectrum", "name": "Spectrum Bars", "renderer": "2d"},
     {"id": "oscilloscope", "name": "Oscilloscope", "renderer": "2d"},
     {"id": "spectrogram", "name": "Waterfall Spectrogram", "renderer": "2d"},
+    {"id": "vectorscope", "name": "Stereo Vectorscope / Goniometer", "renderer": "2d"},
     {"id": "plasma", "name": "Neon Plasma (WebGL)", "renderer": "webgl"},
 ]
 
