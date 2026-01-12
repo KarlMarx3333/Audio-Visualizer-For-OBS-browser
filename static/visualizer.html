@@ -7,7 +7,9 @@
   <link rel="stylesheet" href="/static/css/app.css"/>
   <style>
     body { overflow: hidden; }
-    html.embed, body.embed { background: transparent; }
+    html.embed, body.embed { background: transparent !important; }
+    body.embed #wrap, body.embed #stage { background: transparent !important; }
+    body.embed #canvas { background: transparent !important; }
     #wrap { position: fixed; inset: 0; display: grid; grid-template-rows: auto 1fr; background: transparent; }
     #topbar { padding: 10px 12px; background: rgba(18,24,36,0.85); border-bottom: 1px solid rgba(255,255,255,0.06); }
     #topbar.hidden { display: none; }
@@ -218,6 +220,7 @@ function animate(){
     rms: latestFrame.rms,
     peak: latestFrame.peak,
     corr: latestFrame.corr,
+    overlay: embed,
     spectrum: lastSpectrum,
     wave: lastWave,
     gain,

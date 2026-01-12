@@ -50,7 +50,13 @@ export class Spectrogram2D {
       const t = Math.max(0, Math.min(1, (db + 80) / 80));
       const [R,G,B] = vivid(t);
       const i = x*4;
-      row[i] = R; row[i+1] = G; row[i+2] = B; row[i+3] = 255;
+      const a = (t <= 0.02) ? 0 : Math.floor(255 * Math.pow(t, 1.4));
+      if(a === 0){
+        row[i] = 0; row[i+1] = 0; row[i+2] = 0;
+      }else{
+        row[i] = R; row[i+1] = G; row[i+2] = B;
+      }
+      row[i+3] = a;
     }
     this.octx.putImageData(this._imageRow, 0, 0);
 

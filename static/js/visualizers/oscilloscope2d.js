@@ -17,6 +17,7 @@ export class Oscilloscope2D {
     const ctx = this.ctx;
     const w = this.canvas.width;
     const h = this.canvas.height;
+    const overlay = !!frame.overlay;
 
     ctx.clearRect(0,0,w,h);
 
@@ -24,7 +25,7 @@ export class Oscilloscope2D {
     const gain = frame.gain;
 
     const mid = h/2;
-    ctx.strokeStyle = "rgba(255,255,255,0.10)";
+    ctx.strokeStyle = overlay ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.10)";
     ctx.lineWidth = Math.max(1, Math.floor(1*this._dpr));
     ctx.beginPath();
     ctx.moveTo(0, mid);
@@ -34,7 +35,7 @@ export class Oscilloscope2D {
     const n = wave.length;
 
     ctx.lineWidth = Math.max(1.2, 1.8 * this._dpr);
-    ctx.strokeStyle = "rgba(139,213,255,0.18)";
+    ctx.strokeStyle = overlay ? "rgba(139,213,255,0.35)" : "rgba(139,213,255,0.18)";
     ctx.beginPath();
     for(let i=0;i<n;i++){
       const t = i/(n-1);
@@ -44,7 +45,7 @@ export class Oscilloscope2D {
     }
     ctx.stroke();
 
-    ctx.strokeStyle = "rgba(139,213,255,0.92)";
+    ctx.strokeStyle = overlay ? "rgba(139,213,255,1)" : "rgba(139,213,255,0.92)";
     ctx.beginPath();
     for(let i=0;i<n;i++){
       const t = i/(n-1);
