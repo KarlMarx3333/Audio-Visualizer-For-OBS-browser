@@ -52,7 +52,7 @@ const embed = qs.get("embed") === "1";
 const topbar = document.getElementById("topbar");
 if(embed) topbar.classList.add("hidden");
 
-const canvas = document.getElementById("canvas");
+let canvas = document.getElementById("canvas");
 const vizSel = document.getElementById("vizSel");
 const gainEl = document.getElementById("gain");
 const vsmoothEl = document.getElementById("vsmooth");
@@ -84,14 +84,40 @@ let vizName = currentVizFromPath();
 if(!registry.get(vizName)) vizName = "spectrum";
 vizSel.value = vizName;
 
+let currentRenderer = (registry.get(vizName)?.renderer ?? "2d");
+
+function replaceCanvas(){
+  const old = canvas;
+  const nu = old.cloneNode(false);
+  old.replaceWith(nu);
+  canvas = nu;
+}
+
 let viz = null;
 let latestFrame = null;
 let lastState = { samplerate: 48000, fft_size: 2048 };
+let vizError = null;
 
 function setViz(name){
   if(viz && viz.destroy) viz.destroy();
   vizName = name;
-  viz = createVisualizer(name, canvas);
+  const nextRenderer = (registry.get(name)?.renderer ?? "2d");
+  if(nextRenderer !== currentRenderer){
+    replaceCanvas();
+    currentRenderer = nextRenderer;
+  }
+  try{
+    viz = createVisualizer(name, canvas);
+    vizError = null;
+  }catch(err){
+    viz = null;
+    vizError = err;
+    console.error(err);
+    if(!embed){
+      meta.innerHTML = `Visualizer error: <b>${err.message || err}</b>`;
+    }
+    return;
+  }
   if(!embed){
     history.replaceState({}, "", `/v/${name}${location.search}`);
   }
@@ -110,7 +136,8 @@ async function pollState(){
     lastState = { samplerate: st.samplerate || 48000, fft_size: st.fft_size || 2048 };
     const rms = (st.metrics?.rms||[]).map(x=>x.toFixed(4)).join(",");
     const peak = (st.metrics?.peak||[]).map(x=>x.toFixed(4)).join(",");
-    meta.innerHTML = `Status <b>${st.status}</b> | ws <b>${st.ws_clients}</b> | rms <b>${rms}</b> | peak <b>${peak}</b> | fft <b>${st.fft_size}</b>`;
+    const err = vizError ? ` | visualizer <b style="color:#ff6b6b">error</b>` : "";
+    meta.innerHTML = `Status <b>${st.status}</b> | ws <b>${st.ws_clients}</b> | rms <b>${rms}</b> | peak <b>${peak}</b> | fft <b>${st.fft_size}</b>${err}`;
   }catch(e){}
 }
 setInterval(pollState, 800);
