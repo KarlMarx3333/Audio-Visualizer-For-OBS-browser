@@ -2,7 +2,7 @@
 ObsVizHost is a Windows tray application that captures microphone input, analyzes it in real time, and serves a local FastAPI web UI plus a WebSocket audio stream for OBS visualizers. At runtime it wires together a tray UI (`pystray`), an audio capture loop (`sounddevice`), an analysis worker (`numpy` FFT), a state store, and a local HTTP/WebSocket server (`uvicorn` + `FastAPI`), while the browser UI and visualizers live in `static/`.
 
 ## Quick start mental model
-- `.\.venv\Scripts\python.exe python -m app` (or `python -m app.main`) calls `main()` in `app/main.py` via `app/__main__.py`.
+- `python -m app` (or `python -m app.main`) calls `main()` in `app/main.py` via `app/__main__.py`.
 - `main()` loads config from `app/config.py`, initializes `StateStore`, and starts `AudioEngine`.
 - `AudioEngine` opens a `sounddevice.InputStream` and writes float32 audio frames into `RingBuffer`.
 - `Analyzer` runs on its own thread, reads the ring buffer, computes time-domain + spectrum, and stores metrics.
@@ -40,7 +40,6 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 ├── requirements.txt
 ├── README.md
 ├── Repo_zipper.ps1
-├── code_only.zip
 └── ARCHITECTURE.md
 ```
 - `app/`: Python runtime code only; do not place static assets or generated files here.
@@ -55,7 +54,7 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 - **State store** Purpose: shared, thread-safe snapshot of app status and metrics; Key files: `app/state.py`; Public interfaces / classes: `StateStore`, `AppState`, `Metrics`; Depends on: `threading`, `dataclasses`; Used by: `main()` monitor thread, `TrayApp`, `create_app`.
 - **HTTP/WebSocket server** Purpose: serve UI assets and stream analysis frames; Key files: `app/server.py`; Public interfaces / classes: `create_app`, `ServerThread`, `VISUALIZERS`; Depends on: `FastAPI`, `uvicorn`, `StateStore`, `Analyzer`, `AudioEngine`; Used by: `app/main.py`, browser UI in `static/`.
 - **Tray UI** Purpose: native tray icon and menus for device/visualizer selection; Key files: `app/tray.py`; Public interfaces / classes: `TrayApp`; Depends on: `pystray`, `PIL`, `StateStore`, `AudioEngine`, `VISUALIZERS`; Used by: `app/main.py`.
-- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `Spectrum2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source.
+- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`, `static/js/webgl/util.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `Spectrum2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source. `static/visualizer.html` manages embed mode (transparent overlay), canvas sizing (~80% of available area), and renderer switching (2D vs WebGL) by replacing the canvas when needed.
 
 ## Data flow
 Primary happy path: audio input is captured, analyzed, and streamed to the browser.
