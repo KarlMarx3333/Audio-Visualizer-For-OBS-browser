@@ -1,0 +1,162 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1"/>
+  <title>ObsVizHost</title>
+  <link rel="stylesheet" href="/static/css/app.css"/>
+</head>
+<body>
+  <div class="container">
+    <div class="card">
+      <h1>ObsVizHost</h1>
+      <div id="statusLine"></div>
+      <div class="hr"></div>
+      <div class="kv" id="kv"></div>
+    </div>
+
+    <div class="row">
+      <div class="card col">
+        <h2>Input Device</h2>
+        <label>Microphone / Input</label>
+        <select id="deviceSel"></select>
+        <div style="height:10px"></div>
+        <button id="applyDevice">Apply Device</button>
+        <div style="height:10px"></div>
+        <small>Tip: device selection is also available from the tray menu.</small>
+      </div>
+
+      <div class="card col">
+        <h2>Options</h2>
+        <div class="row" style="gap:10px">
+          <div class="col">
+            <label>FFT Size</label>
+            <select id="fftSel">
+              <option>512</option>
+              <option>1024</option>
+              <option selected>2048</option>
+              <option>4096</option>
+              <option>8192</option>
+            </select>
+          </div>
+          <div class="col">
+            <label>FPS Cap</label>
+            <select id="fpsSel">
+              <option>30</option>
+              <option selected>60</option>
+              <option>90</option>
+              <option>120</option>
+            </select>
+          </div>
+        </div>
+        <div style="height:10px"></div>
+        <label>Smoothing (analysis)</label>
+        <input id="smooth" type="range" min="0" max="0.95" step="0.01" value="0.65"/>
+        <div style="display:flex; justify-content:space-between; gap:12px; margin-top:6px;">
+          <small id="smoothVal">0.65</small>
+          <small>higher = steadier spectrum</small>
+        </div>
+        <div style="height:10px"></div>
+        <button id="applyOpts">Apply Options</button>
+      </div>
+    </div>
+
+    <div class="card">
+      <h2>Visualizers</h2>
+      <div id="vizLinks"></div>
+      <div style="height:10px"></div>
+      <div class="embed-note">OBS Browser Source URL format: <code>http://127.0.0.1:8787/v/&lt;visualizer&gt;?embed=1</code></div>
+    </div>
+  </div>
+
+<script>
+const el = (id)=>document.getElementById(id);
+
+async function fetchJSON(url, opts){
+  const r = await fetch(url, opts);
+  return await r.json();
+}
+
+function badge(status){
+  if(status === "running") return '<span class="badge ok">running</span>';
+  if(status === "error") return '<span class="badge err">error</span>';
+  return `<span class="badge">${status}</span>`;
+}
+
+async function refresh(){
+  const st = await fetchJSON("/api/state");
+  el("statusLine").innerHTML = `Status: ${badge(st.status)} <span style="color:#9fb0c8">WS clients:</span> ${st.ws_clients}` + (st.last_error ? ` <span style="color:#ff6b6b">(${st.last_error})</span>` : "");
+  const kv = el("kv");
+  kv.innerHTML = "";
+  const add = (k,v)=>{ kv.innerHTML += `<div>${k}</div><div>${v}</div>`; };
+  add("Device", st.selected_device_id ?? "(none)");
+  add("Sample Rate", st.samplerate);
+  add("Channels", st.channels);
+  add("FFT Size", st.fft_size);
+  add("FPS Cap", st.fps_cap);
+  add("Visualizer", st.visualizer_name);
+  add("RMS", (st.metrics?.rms||[]).map(x=>x.toFixed(4)).join(", "));
+  add("Peak", (st.metrics?.peak||[]).map(x=>x.toFixed(4)).join(", "));
+  add("Corr", (st.metrics?.corr==null ? "-" : st.metrics.corr.toFixed(3)));
+
+  el("smooth").value = st.smoothing;
+  el("smoothVal").textContent = Number(st.smoothing).toFixed(2);
+  el("fftSel").value = String(st.fft_size);
+  el("fpsSel").value = String(st.fps_cap);
+}
+
+async function loadDevices(){
+  const devs = await fetchJSON("/api/devices");
+  const sel = el("deviceSel");
+  sel.innerHTML = "";
+  sel.appendChild(new Option("(default)", ""));
+  for(const d of devs){
+    const label = `${d.name} (${d.hostapi})`;
+    sel.appendChild(new Option(label, String(d.id)));
+  }
+  const st = await fetchJSON("/api/state");
+  sel.value = st.selected_device_id == null ? "" : String(st.selected_device_id);
+}
+
+async function loadVisualizers(){
+  const vs = await fetchJSON("/api/visualizers");
+  const box = el("vizLinks");
+  box.innerHTML = "";
+  for(const v of vs){
+    const url = `/v/${v.id}`;
+    const embed = `/v/${v.id}?embed=1`;
+    box.innerHTML += `<div style="padding:6px 0"><b>${v.name}</b> <small>(${v.renderer})</small><br/>
+      <a href="${url}">${url}</a> &nbsp;|&nbsp; <a href="${embed}">OBS embed</a></div>`;
+  }
+}
+
+el("applyDevice").addEventListener("click", async ()=>{
+  const id = el("deviceSel").value;
+  const payload = id === "" ? {device_id: null} : {device_id: Number(id)};
+  await fetchJSON("/api/device", {method:"POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+  await refresh();
+});
+
+el("smooth").addEventListener("input", ()=>{
+  el("smoothVal").textContent = Number(el("smooth").value).toFixed(2);
+});
+
+el("applyOpts").addEventListener("click", async ()=>{
+  const payload = {
+    smoothing: Number(el("smooth").value),
+    fft_size: Number(el("fftSel").value),
+    fps_cap: Number(el("fpsSel").value),
+  };
+  await fetchJSON("/api/options", {method:"POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+  await refresh();
+});
+
+(async ()=>{
+  await loadDevices();
+  await loadVisualizers();
+  await refresh();
+  setInterval(refresh, 800);
+})();
+</script>
+</body>
+</html>
