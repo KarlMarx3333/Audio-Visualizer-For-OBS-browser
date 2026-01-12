@@ -65,7 +65,8 @@ export class PlasmaWebGL {
         float vig = smoothstep(1.2, 0.2, r);
         col *= vig;
 
-        gl_FragColor = vec4(col, 1.0);
+        float alpha = clamp(glow * (0.35 + 0.65*e) * vig, 0.0, 1.0);
+        gl_FragColor = vec4(col, alpha);
       }
     `;
 
@@ -111,6 +112,9 @@ export class PlasmaWebGL {
     this._treble = a*this._treble + (1-a)*Math.min(1.0, treble*30.0);
 
     const t = (performance.now() - this._t0) / 1000.0;
+
+    gl.clearColor(0, 0, 0, 0);
+    gl.clear(gl.COLOR_BUFFER_BIT);
 
     gl.useProgram(this.program);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vb);

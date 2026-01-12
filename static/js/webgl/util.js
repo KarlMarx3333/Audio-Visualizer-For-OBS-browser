@@ -1,6 +1,7 @@
 export function createGL(canvas){
-  const gl = canvas.getContext("webgl", { antialias: true, alpha: true, premultipliedAlpha: true })
-         || canvas.getContext("experimental-webgl");
+  const opts = { antialias: true, alpha: true, premultipliedAlpha: false };
+  const gl = canvas.getContext("webgl", opts)
+         || canvas.getContext("experimental-webgl", opts);
   if(!gl) throw new Error("WebGL not supported");
   return gl;
 }

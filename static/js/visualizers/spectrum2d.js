@@ -19,8 +19,6 @@ export class Spectrum2D {
     const h = this.canvas.height;
 
     ctx.clearRect(0,0,w,h);
-    ctx.fillStyle = "rgba(0,0,0,0.18)";
-    ctx.fillRect(0,0,w,h);
 
     const spec = frame.spectrum;
     const gain = frame.gain;

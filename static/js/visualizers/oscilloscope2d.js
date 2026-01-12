@@ -18,8 +18,7 @@ export class Oscilloscope2D {
     const w = this.canvas.width;
     const h = this.canvas.height;
 
-    ctx.fillStyle = "rgba(0,0,0,0.12)";
-    ctx.fillRect(0,0,w,h);
+    ctx.clearRect(0,0,w,h);
 
     const wave = frame.wave;
     const gain = frame.gain;
