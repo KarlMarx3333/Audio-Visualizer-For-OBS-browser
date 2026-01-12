@@ -201,7 +201,15 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
 
 class ServerThread:
     def __init__(self, app: FastAPI, host: str, port: int) -> None:
-        self.config = uvicorn.Config(app=app, host=host, port=port, log_level="warning", access_log=False)
+        self.config = uvicorn.Config(
+            app=app,
+            host=host,
+            port=port,
+            log_level="warning",
+            access_log=False,
+            ws="wsproto",
+            ws_ping_interval=None,
+        )
         self.server = uvicorn.Server(self.config)
         self.thread: Optional[threading.Thread] = None
 

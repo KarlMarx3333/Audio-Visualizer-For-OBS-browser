@@ -19,7 +19,17 @@ export class Oscilloscope2D {
     const h = this.canvas.height;
     const overlay = !!frame.overlay;
 
-    ctx.clearRect(0,0,w,h);
+    if(overlay){
+      ctx.save();
+      ctx.globalCompositeOperation = "destination-out";
+      ctx.fillStyle = "rgba(0,0,0,0.08)";
+      ctx.fillRect(0,0,w,h);
+      ctx.restore();
+    }else{
+      ctx.clearRect(0,0,w,h);
+    }
+    ctx.globalCompositeOperation = "source-over";
+    ctx.globalAlpha = 1;
 
     const wave = frame.wave;
     const gain = frame.gain;
