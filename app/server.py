@@ -20,7 +20,10 @@ VISUALIZERS = [
     {"id": "oscilloscope", "name": "Oscilloscope", "renderer": "2d"},
     {"id": "spectrogram", "name": "Waterfall Spectrogram", "renderer": "2d"},
     {"id": "vectorscope", "name": "Stereo Vectorscope / Goniometer", "renderer": "2d"},
+    {"id": "chroma", "name": "Chromagram / Pitch-Class Ring", "renderer": "2d"},
     {"id": "plasma", "name": "Neon Plasma (WebGL)", "renderer": "webgl"},
+    {"id": "feedback", "name": "Feedback Mirror (WebGL)", "renderer": "webgl"},
+    {"id": "tunnel", "name": "Tunnel / Warp Speed (WebGL)", "renderer": "webgl"},
 ]
 
 

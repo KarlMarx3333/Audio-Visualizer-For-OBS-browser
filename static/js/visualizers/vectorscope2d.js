@@ -31,7 +31,6 @@ export class Vectorscope2D {
     const ch = frame.channels || 1;
     const inter = frame.waveLR;
     const mono = frame.wave;
-    const corr = frame.corr;
     let n = 0;
 
     const userGain = frame.gain || 1.0;
@@ -136,16 +135,6 @@ export class Vectorscope2D {
     ctx.stroke();
     ctx.restore();
 
-    const showHint = ((ch < 2 || !inter) && !usePseudo) || (corr != null && corr > 0.98);
-    if(showHint){
-      ctx.save();
-      ctx.globalCompositeOperation = "source-over";
-      ctx.fillStyle = "rgba(255,255,255,0.35)";
-      ctx.font = `${Math.max(10, Math.floor(11*this._dpr))}px system-ui, -apple-system, Segoe UI, Arial, sans-serif`;
-      ctx.textBaseline = "top";
-      ctx.fillText("MONO / CORR>=0.98 - use stereo input for blob", 8, 8);
-      ctx.restore();
-    }
   }
 
   destroy(){}

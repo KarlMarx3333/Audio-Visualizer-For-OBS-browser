@@ -25,7 +25,9 @@ Use an URL like:
 - Spectrum Bars (Canvas2D)
 - Oscilloscope (Canvas2D)
 - Waterfall Spectrogram (Canvas2D)
+- Chromagram / Pitch-Class Ring (Canvas2D)
 - Neon Plasma (WebGL)
+- Feedback Mirror (WebGL)
 
 ## Add a new visualizer
 1) Create `static/js/visualizers/myviz.js` exporting a class:

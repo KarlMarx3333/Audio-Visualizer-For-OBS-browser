@@ -83,6 +83,8 @@ function badge(status){
   return `<span class="badge">${status}</span>`;
 }
 
+let optsDirty = { fft: false, fps: false, smooth: false };
+
 async function refresh(){
   const st = await fetchJSON("/api/state");
   el("statusLine").innerHTML = `Status: ${badge(st.status)} <span style="color:#9fb0c8">WS clients:</span> ${st.ws_clients}` + (st.last_error ? ` <span style="color:#ff6b6b">(${st.last_error})</span>` : "");
@@ -99,10 +101,16 @@ async function refresh(){
   add("Peak", (st.metrics?.peak||[]).map(x=>x.toFixed(4)).join(", "));
   add("Corr", (st.metrics?.corr==null ? "-" : st.metrics.corr.toFixed(3)));
 
-  el("smooth").value = st.smoothing;
-  el("smoothVal").textContent = Number(st.smoothing).toFixed(2);
-  el("fftSel").value = String(st.fft_size);
-  el("fpsSel").value = String(st.fps_cap);
+  if(!optsDirty.smooth){
+    el("smooth").value = st.smoothing;
+    el("smoothVal").textContent = Number(st.smoothing).toFixed(2);
+  }
+  if(!optsDirty.fft){
+    el("fftSel").value = String(st.fft_size);
+  }
+  if(!optsDirty.fps){
+    el("fpsSel").value = String(st.fps_cap);
+  }
 }
 
 async function loadDevices(){
@@ -138,7 +146,16 @@ el("applyDevice").addEventListener("click", async ()=>{
 });
 
 el("smooth").addEventListener("input", ()=>{
+  optsDirty.smooth = true;
   el("smoothVal").textContent = Number(el("smooth").value).toFixed(2);
+});
+
+el("fftSel").addEventListener("change", ()=>{
+  optsDirty.fft = true;
+});
+
+el("fpsSel").addEventListener("change", ()=>{
+  optsDirty.fps = true;
 });
 
 el("applyOpts").addEventListener("click", async ()=>{
@@ -148,6 +165,7 @@ el("applyOpts").addEventListener("click", async ()=>{
     fps_cap: Number(el("fpsSel").value),
   };
   await fetchJSON("/api/options", {method:"POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload)});
+  optsDirty = { fft: false, fps: false, smooth: false };
   await refresh();
 });
 
