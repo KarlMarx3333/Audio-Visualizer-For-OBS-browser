@@ -6,6 +6,8 @@ import { ChromaRing2D } from "/static/js/visualizers/chroma_ring2d.js";
 import { PlasmaWebGL } from "/static/js/visualizers/plasma_webgl.js";
 import { FeedbackMirrorWebGL } from "/static/js/visualizers/feedback_webgl.js";
 import { TunnelWarpWebGL } from "/static/js/visualizers/tunnel_webgl.js";
+import { ParticleSwarmWebGL2 } from "/static/js/visualizers/particle_swarm_webgl2.js";
+
 
 class Registry {
   constructor(){
@@ -23,6 +25,8 @@ class Registry {
     this.register(PlasmaWebGL);
     this.register(FeedbackMirrorWebGL);
     this.register(TunnelWarpWebGL);
+    this.register(ParticleSwarmWebGL2);
+
   }
   register(V){ this._map.set(V.id, V); }
   get(id){ return this._map.get(id); }

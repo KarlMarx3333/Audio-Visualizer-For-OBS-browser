@@ -26,6 +26,7 @@ VISUALIZERS = [
     {"id": "plasma", "name": "Neon Plasma (WebGL)", "renderer": "webgl"},
     {"id": "feedback", "name": "Feedback Mirror (WebGL)", "renderer": "webgl"},
     {"id": "tunnel", "name": "Tunnel / Warp Speed (WebGL)", "renderer": "webgl"},
+    {"id": "swarm", "name": "Particle Swarm / Explosions (WebGL2)", "renderer": "webgl"},
 ]
 
 
