@@ -26,6 +26,8 @@ class AppConfig:
     channels: int = 1
     visualizer_name: str = "spectrum"
     smoothing: float = 0.65
+    gain: float = 1.0
+    visual_smoothing: float = 0.55
     fft_size: int = 2048
     fps_cap: int = 60
     embed_default: bool = True
@@ -35,6 +37,8 @@ class AppConfig:
         self.samplerate = int(max(8000, min(192000, self.samplerate)))
         self.channels = 1 if int(self.channels) <= 1 else 2
         self.smoothing = float(max(0.0, min(0.99, self.smoothing)))
+        self.gain = float(max(0.2, min(4.0, self.gain)))
+        self.visual_smoothing = float(max(0.0, min(0.95, self.visual_smoothing)))
 
         fft = int(self.fft_size)
         if fft < 256:

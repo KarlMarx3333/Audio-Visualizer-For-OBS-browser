@@ -25,6 +25,8 @@ def main() -> None:
         channels=cfg.channels,
         visualizer_name=cfg.visualizer_name,
         smoothing=cfg.smoothing,
+        gain=cfg.gain,
+        visual_smoothing=cfg.visual_smoothing,
         fft_size=cfg.fft_size,
         fps_cap=cfg.fps_cap,
     )

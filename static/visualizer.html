@@ -28,12 +28,12 @@
           <select id="vizSel"></select>
         </div>
         <div class="col" style="min-width:220px">
-          <label>Gain</label>
-          <input id="gain" type="range" min="0.2" max="4.0" step="0.01" value="1.0"/>
+          <label>Gain (tray)</label>
+          <input id="gain" type="range" min="0.2" max="4.0" step="0.01" value="1.0" disabled/>
         </div>
         <div class="col" style="min-width:220px">
-          <label>Smoothing (visual)</label>
-          <input id="vsmooth" type="range" min="0" max="0.95" step="0.01" value="0.55"/>
+          <label>Smoothing (tray)</label>
+          <input id="vsmooth" type="range" min="0" max="0.95" step="0.01" value="0.55" disabled/>
         </div>
         <div class="col" style="min-width:220px">
           <label>&nbsp;</label>
@@ -188,10 +188,16 @@ async function pollState(){
         setViz(st.visualizer_name);
       }
     }
+    if(typeof st.gain === "number"){
+      gainEl.value = String(st.gain);
+    }
+    if(typeof st.visual_smoothing === "number"){
+      vsmoothEl.value = String(st.visual_smoothing);
+    }
     const rms = (st.metrics?.rms||[]).map(x=>x.toFixed(4)).join(",");
     const peak = (st.metrics?.peak||[]).map(x=>x.toFixed(4)).join(",");
     const err = vizError ? ` | visualizer <b style="color:#ff6b6b">error</b>` : "";
-    meta.innerHTML = `Status <b>${st.status}</b> | ws <b>${st.ws_clients}</b> | rms <b>${rms}</b> | peak <b>${peak}</b> | fft <b>${st.fft_size}</b>${err}`;
+    meta.innerHTML = `Status <b>${st.status}</b> | ws <b>${st.ws_clients}</b> | rms <b>${rms}</b> | peak <b>${peak}</b> | fft <b>${st.fft_size}</b> | gain <b>${Number(gainEl.value).toFixed(2)}x</b> | smooth <b>${Number(vsmoothEl.value).toFixed(2)}</b>${err}`;
   }catch(e){}
 }
 setInterval(pollState, 800);

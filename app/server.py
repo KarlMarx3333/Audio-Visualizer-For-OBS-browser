@@ -81,6 +81,8 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
             "port": s.port,
             "visualizer_name": s.visualizer_name,
             "smoothing": s.smoothing,
+            "gain": s.gain,
+            "visual_smoothing": s.visual_smoothing,
             "fft_size": s.fft_size,
             "fps_cap": s.fps_cap,
             "ws_clients": s.ws_clients,

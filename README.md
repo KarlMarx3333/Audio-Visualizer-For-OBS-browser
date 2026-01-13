@@ -53,6 +53,9 @@ Direct, fixed visualizer links (no auto-switch):
 ### Oscilloscope
 ![Oscilloscope](Demo/oscilloscope_demo.png)
 
+### Spectrum 
+![Spectrum](Demo/spectrum_demo.png)
+
 
 ## Add a new visualizer
 1) Create `static/js/visualizers/myviz.js` exporting a class:

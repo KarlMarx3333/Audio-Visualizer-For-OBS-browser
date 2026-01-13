@@ -28,6 +28,8 @@ class AppState:
     port: int = 8787
     visualizer_name: str = "spectrum"
     smoothing: float = 0.65
+    gain: float = 1.0
+    visual_smoothing: float = 0.55
     fft_size: int = 2048
     fps_cap: int = 60
 
@@ -54,6 +56,8 @@ class StateStore:
                 port=s.port,
                 visualizer_name=s.visualizer_name,
                 smoothing=s.smoothing,
+                gain=s.gain,
+                visual_smoothing=s.visual_smoothing,
                 fft_size=s.fft_size,
                 fps_cap=s.fps_cap,
                 metrics=Metrics(
