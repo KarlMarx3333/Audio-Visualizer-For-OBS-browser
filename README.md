@@ -14,10 +14,16 @@ pip install -r requirements.txt
 python -m app.main
 ```
 
-A tray icon appears. Use **Open UI** or select visualizers/devices from the tray.
+A tray icon appears. Use **Open UI** to open the control page, or select visualizers/devices from the tray to change the active visualizer for `/render` clients.
 
-## OBS Browser Source
-Use an URL like:
+## OBS Browser Source (stable URL)
+Use the stable endpoint so OBS never needs a new URL:
+- `http://127.0.0.1:8787/render?embed=1`
+
+Interactive preview:
+- `http://127.0.0.1:8787/render`
+
+Direct, fixed visualizer links (no auto-switch):
 - `http://127.0.0.1:8787/v/spectrum?embed=1`
 - `http://127.0.0.1:8787/v/plasma?embed=1`
 
@@ -25,9 +31,11 @@ Use an URL like:
 - Spectrum Bars (Canvas2D)
 - Oscilloscope (Canvas2D)
 - Waterfall Spectrogram (Canvas2D)
+- Stereo Vectorscope / Goniometer (Canvas2D)
 - Chromagram / Pitch-Class Ring (Canvas2D)
 - Neon Plasma (WebGL)
 - Feedback Mirror (WebGL)
+- Tunnel / Warp Speed (WebGL)
 
 ## Add a new visualizer
 1) Create `static/js/visualizers/myviz.js` exporting a class:

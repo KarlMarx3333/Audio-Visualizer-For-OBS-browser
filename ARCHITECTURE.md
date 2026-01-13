@@ -1,15 +1,15 @@
 # Architecture
-ObsVizHost is a Windows tray application that captures microphone input, analyzes it in real time, and serves a local FastAPI web UI plus a WebSocket audio stream for OBS visualizers. At runtime it wires together a tray UI (`pystray`), an audio capture loop (`sounddevice`), an analysis worker (`numpy` FFT), a state store, and a local HTTP/WebSocket server (`uvicorn` + `FastAPI`), while the browser UI and visualizers live in `static/`.
+ObsVizHost is a Windows tray application that captures microphone input, analyzes it in real time, and serves a local FastAPI web UI plus a WebSocket audio stream for OBS visualizers (stable `/render` and per-visualizer `/v/<name>`). At runtime it wires together a tray UI (`pystray`), an audio capture loop (`sounddevice`), an analysis worker (`numpy` FFT), a state store, and a local HTTP/WebSocket server (`uvicorn` + `FastAPI`), while the browser UI and visualizers live in `static/`.
 
 ## Quick start mental model
 - `python -m app` (or `python -m app.main`) calls `main()` in `app/main.py` via `app/__main__.py`.
 - `main()` loads config from `app/config.py`, initializes `StateStore`, and starts `AudioEngine`.
 - `AudioEngine` opens a `sounddevice.InputStream` and writes float32 audio frames into `RingBuffer`.
 - `Analyzer` runs on its own thread, reads the ring buffer, computes time-domain + spectrum, and stores metrics.
-- `ServerThread` runs a FastAPI app that serves `static/` and a `/ws/audio` binary stream.
+- `ServerThread` runs a FastAPI app that serves `static/`, `/render`, `/v/{name}`, and a `/ws/audio` binary stream.
 - A monitor thread polls `Analyzer` and pushes status/metrics into `StateStore`.
 - `TrayApp` runs the tray icon loop; menu actions update config, state, and restart audio.
-- The browser UI (`static/index.html` or `static/visualizer.html`) calls REST endpoints and connects to `/ws/audio`.
+- The browser UI (`static/index.html` or `static/visualizer.html`) calls REST endpoints and connects to `/ws/audio`; `/render` follows the server-selected visualizer.
 
 ## Repository layout
 ```
@@ -35,7 +35,11 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 │       │   ├── spectrum2d.js
 │       │   ├── oscilloscope2d.js
 │       │   ├── spectrogram2d.js
-│       │   └── plasma_webgl.js
+│       │   ├── vectorscope2d.js
+│       │   ├── chroma_ring2d.js
+│       │   ├── plasma_webgl.js
+│       │   ├── feedback_webgl.js
+│       │   └── tunnel_webgl.js
 │       └── webgl/util.js
 ├── requirements.txt
 ├── README.md
@@ -52,9 +56,9 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 - **Audio capture** Purpose: device discovery, background capture, ring buffer; Key files: `app/audio_engine.py`; Public interfaces / classes: `AudioEngine`, `RingBuffer`, `list_input_devices`; Depends on: `sounddevice`, `numpy`, `threading`; Used by: `Analyzer`, `TrayApp`, `create_app` (devices API).
 - **Analysis** Purpose: compute spectrum/time-domain metrics from latest audio; Key files: `app/analysis.py`; Public interfaces / classes: `Analyzer`, `hann_window`; Depends on: `numpy`, `AudioEngine`; Used by: `app/main.py` monitor thread, `app/server.py` WebSocket handler.
 - **State store** Purpose: shared, thread-safe snapshot of app status and metrics; Key files: `app/state.py`; Public interfaces / classes: `StateStore`, `AppState`, `Metrics`; Depends on: `threading`, `dataclasses`; Used by: `main()` monitor thread, `TrayApp`, `create_app`.
-- **HTTP/WebSocket server** Purpose: serve UI assets and stream analysis frames; Key files: `app/server.py`; Public interfaces / classes: `create_app`, `ServerThread`, `VISUALIZERS`; Depends on: `FastAPI`, `uvicorn`, `StateStore`, `Analyzer`, `AudioEngine`; Used by: `app/main.py`, browser UI in `static/`.
+- **HTTP/WebSocket server** Purpose: serve UI assets and stream analysis frames; Key files: `app/server.py`; Public interfaces / classes: `create_app`, `ServerThread`, `VISUALIZERS`; Depends on: `FastAPI`, `uvicorn`, `StateStore`, `Analyzer`, `AudioEngine`; Used by: `app/main.py`, browser UI in `static/`. Provides `/render` (stable OBS URL) and `/v/{name}` (fixed visualizer links).
 - **Tray UI** Purpose: native tray icon and menus for device/visualizer selection; Key files: `app/tray.py`; Public interfaces / classes: `TrayApp`; Depends on: `pystray`, `PIL`, `StateStore`, `AudioEngine`, `VISUALIZERS`; Used by: `app/main.py`.
-- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`, `static/js/webgl/util.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `Spectrum2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source. `static/visualizer.html` manages embed mode (transparent overlay), canvas sizing (~80% of available area), and renderer switching (2D vs WebGL) by replacing the canvas when needed.
+- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`, `static/js/webgl/util.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `Spectrum2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source. `static/visualizer.html` manages embed mode (transparent overlay), canvas sizing (~80% of available area), renderer switching (2D vs WebGL) by replacing the canvas when needed, and follows the server-selected visualizer when loaded via `/render`.
 
 ## Data flow
 Primary happy path: audio input is captured, analyzed, and streamed to the browser.
@@ -64,6 +68,7 @@ Mic -> AudioEngine(InputStream callback) -> RingBuffer
      -> FastAPI /ws/audio -> ws_client.js -> Visualizer.onFrame()
 ```
 User configuration updates follow two paths: tray menu actions call `AudioEngine.configure()` and `save_config()` in `app/tray.py`, and the web UI posts to `/api/device` or `/api/options` in `app/server.py`, which update config/state and restart the audio engine when needed.
+Visualizer selection updates from the tray or `/api/visualizer` update `StateStore`, and `/render` clients poll `/api/state` to swap visualizers without changing URL.
 
 ## Concurrency and threading
 - `AudioEngine` starts a daemon thread (`threading.Thread`) and uses a `sounddevice.InputStream` callback to write into `RingBuffer` (`app/audio_engine.py`).
@@ -90,5 +95,4 @@ User configuration updates follow two paths: tray menu actions call `AudioEngine
 
 ## Known gaps / TODOs
 - Error handling is mostly silent (many `except Exception: pass` blocks), which can hide real failures; see `app/audio_engine.py`, `app/main.py`, and `app/server.py`.
-- `/ws/audio` loops with no explicit pacing, so it can send as fast as the client will accept; see `app/server.py`.
 - There is no test harness or smoke test automation; the only guidance is in `README.md`.
