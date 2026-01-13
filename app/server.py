@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import asyncio
 import struct
 import threading
 from pathlib import Path
@@ -9,6 +10,7 @@ import uvicorn
 from fastapi import FastAPI, WebSocket
 from fastapi.responses import FileResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.websockets import WebSocketDisconnect
 
 from .config import AppConfig, save_config
 from .state import StateStore
@@ -44,6 +46,10 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
 
     @app.get("/v/{name}")
     def visualizer(name: str):
+        return FileResponse(str(static_dir / "visualizer.html"))
+
+    @app.get("/render")
+    def render():
         return FileResponse(str(static_dir / "visualizer.html"))
 
     @app.get("/api/visualizers")
@@ -177,8 +183,14 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
         snap = state.snapshot()
         state.update(ws_clients=snap.ws_clients + 1)
         try:
+            last_sent = -1
             while True:
                 frame_id, ts, td, spec, rms, peak, corr = analyzer.get_latest()
+                if frame_id == last_sent:
+                    fps = max(10, int(getattr(cfg, "fps_cap", 60)))
+                    await asyncio.sleep(max(0.001, 1.0 / (fps * 4.0)))
+                    continue
+                last_sent = frame_id
                 ch = int(td.shape[1])
                 td_len = int(td.shape[0])
                 sp_len = int(spec.shape[0])
@@ -194,6 +206,8 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
                 td_bytes = td.astype("float32", copy=False).tobytes(order="C")
                 spec_bytes = spec.astype("float32", copy=False).tobytes(order="C")
                 await ws.send_bytes(header + metrics + td_bytes + spec_bytes)
+        except WebSocketDisconnect:
+            pass
         except Exception:
             pass
         finally:

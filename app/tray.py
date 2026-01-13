@@ -69,7 +69,6 @@ class TrayApp:
         def _make_handler(vid: str):
             def _handler(icon, item):
                 self._set_visualizer(vid)
-                webbrowser.open(f"http://127.0.0.1:{self.cfg.port}/v/{vid}?embed=1")
             return _handler
 
         def _make_checked(vid: str):
