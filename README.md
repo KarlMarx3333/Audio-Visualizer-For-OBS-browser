@@ -27,15 +27,32 @@ Direct, fixed visualizer links (no auto-switch):
 - `http://127.0.0.1:8787/v/spectrum?embed=1`
 - `http://127.0.0.1:8787/v/plasma?embed=1`
 
-## Included visualizers
-- Spectrum Bars (Canvas2D)
-- Oscilloscope (Canvas2D)
-- Waterfall Spectrogram (Canvas2D)
-- Stereo Vectorscope / Goniometer (Canvas2D)
-- Chromagram / Pitch-Class Ring (Canvas2D)
-- Neon Plasma (WebGL)
-- Feedback Mirror (WebGL)
-- Tunnel / Warp Speed (WebGL)
+## Included visualizers Demos
+
+### Particle Swarm
+![Particle Swarm](Demo/particle_swarm_demo.png)
+
+### Tunnel (WebGL)
+![Tunnel](Demo/tunnel_webgl_demo.png)
+
+### Feedback
+![Feedback](Demo/feedback_demo.png)
+
+### Plasma
+![Plasma](Demo/plasma_demo.png)
+
+### Chroma Ring
+![Chroma Ring](Demo/chroma_ring_demo.png)
+
+### Vectorscope
+![Vectorscope](Demo/vectorscope_demo.png)
+
+### Spectrogram
+![Spectrogram](Demo/spectrogram_demo.png)
+
+### Oscilloscope
+![Oscilloscope](Demo/oscilloscope_demo.png)
+
 
 ## Add a new visualizer
 1) Create `static/js/visualizers/myviz.js` exporting a class:
