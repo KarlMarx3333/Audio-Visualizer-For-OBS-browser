@@ -63,9 +63,27 @@
 
     <div class="card">
       <h2>Visualizers</h2>
+      <div class="row" style="gap:10px; align-items:flex-end;">
+        <div class="col" style="min-width:220px">
+          <label>Active Visualizer</label>
+          <select id="vizSel"></select>
+        </div>
+        <div class="col" style="min-width:220px">
+          <label>&nbsp;</label>
+          <button id="applyViz">Set Active Visualizer</button>
+        </div>
+      </div>
+      <div style="height:10px"></div>
+      <div class="embed-note">
+        Stable links:
+        <a href="/render">/render</a>
+        &nbsp;|&nbsp;
+        <a href="/render?embed=1">/render?embed=1</a>
+      </div>
+      <div style="height:10px"></div>
       <div id="vizLinks"></div>
       <div style="height:10px"></div>
-      <div class="embed-note">OBS Browser Source URL format: <code>http://127.0.0.1:8787/v/&lt;visualizer&gt;?embed=1</code></div>
+      <div class="embed-note">OBS Browser Source URL: <code>http://127.0.0.1:&lt;port&gt;/render?embed=1</code></div>
     </div>
   </div>
 
@@ -129,12 +147,19 @@ async function loadDevices(){
 async function loadVisualizers(){
   const vs = await fetchJSON("/api/visualizers");
   const box = el("vizLinks");
+  const sel = el("vizSel");
   box.innerHTML = "";
+  sel.innerHTML = "";
   for(const v of vs){
+    sel.appendChild(new Option(`${v.name} (${v.renderer})`, v.id));
     const url = `/v/${v.id}`;
     const embed = `/v/${v.id}?embed=1`;
     box.innerHTML += `<div style="padding:6px 0"><b>${v.name}</b> <small>(${v.renderer})</small><br/>
       <a href="${url}">${url}</a> &nbsp;|&nbsp; <a href="${embed}">OBS embed</a></div>`;
+  }
+  const st = await fetchJSON("/api/state");
+  if(st.visualizer_name){
+    sel.value = st.visualizer_name;
   }
 }
 
@@ -166,6 +191,12 @@ el("applyOpts").addEventListener("click", async ()=>{
   };
   await fetchJSON("/api/options", {method:"POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload)});
   optsDirty = { fft: false, fps: false, smooth: false };
+  await refresh();
+});
+
+el("applyViz").addEventListener("click", async ()=>{
+  const payload = { visualizer: el("vizSel").value };
+  await fetchJSON("/api/visualizer", {method:"POST", headers: {"Content-Type":"application/json"}, body: JSON.stringify(payload)});
   await refresh();
 });
 

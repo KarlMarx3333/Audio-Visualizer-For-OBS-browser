@@ -75,6 +75,9 @@ function currentVizFromPath(){
   return name;
 }
 
+const fixedViz = qs.get("viz") || (location.pathname.startsWith("/v/") ? currentVizFromPath() : null);
+const followServer = fixedViz == null;
+
 function resize(){
   const dpr = window.devicePixelRatio || 1;
   const wrapRect = wrap.getBoundingClientRect();
@@ -102,9 +105,8 @@ for(const v of registry.list()){
   vizSel.appendChild(new Option(v.name + " ("+v.renderer+")", v.id));
 }
 
-let vizName = currentVizFromPath();
+let vizName = fixedViz || "spectrum";
 if(!registry.get(vizName)) vizName = "spectrum";
-vizSel.value = vizName;
 
 let currentRenderer = (registry.get(vizName)?.renderer ?? "2d");
 
@@ -140,22 +142,52 @@ function setViz(name){
     }
     return;
   }
-  if(!embed){
+  const allowHistory = location.pathname.startsWith("/v/");
+  if(!embed && allowHistory){
     history.replaceState({}, "", `/v/${name}${location.search}`);
   }
   resize();
 }
 
-setViz(vizName);
+async function initViz(){
+  if(followServer){
+    try{
+      const st = await (await fetch("/api/state")).json();
+      if(st.visualizer_name && registry.get(st.visualizer_name)){
+        vizName = st.visualizer_name;
+      }
+    }catch(e){}
+  }
+  vizSel.value = vizName;
+  setViz(vizName);
+}
 
-vizSel.addEventListener("change", ()=>{
-  setViz(vizSel.value);
+initViz();
+
+vizSel.addEventListener("change", async ()=>{
+  const next = vizSel.value;
+  setViz(next);
+  if(followServer && !embed){
+    try{
+      await fetch("/api/visualizer", {
+        method:"POST",
+        headers: {"Content-Type":"application/json"},
+        body: JSON.stringify({visualizer: next}),
+      });
+    }catch(e){}
+  }
 });
 
 async function pollState(){
   try{
     const st = await (await fetch("/api/state")).json();
     lastState = { samplerate: st.samplerate || 48000, fft_size: st.fft_size || 2048 };
+    if(followServer && st.visualizer_name && st.visualizer_name !== vizName){
+      if(registry.get(st.visualizer_name)){
+        vizSel.value = st.visualizer_name;
+        setViz(st.visualizer_name);
+      }
+    }
     const rms = (st.metrics?.rms||[]).map(x=>x.toFixed(4)).join(",");
     const peak = (st.metrics?.peak||[]).map(x=>x.toFixed(4)).join(",");
     const err = vizError ? ` | visualizer <b style="color:#ff6b6b">error</b>` : "";
