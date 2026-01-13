@@ -7,10 +7,14 @@
   <link rel="stylesheet" href="/static/css/app.css"/>
   <style>
     body { overflow: hidden; }
-    #wrap { position: fixed; inset: 0; display: grid; grid-template-rows: auto 1fr; }
+    html.embed, body.embed { background: transparent !important; }
+    body.embed #wrap, body.embed #stage { background: transparent !important; }
+    body.embed #canvas { background: transparent !important; }
+    #wrap { position: fixed; inset: 0; display: grid; grid-template-rows: auto 1fr; background: transparent; }
     #topbar { padding: 10px 12px; background: rgba(18,24,36,0.85); border-bottom: 1px solid rgba(255,255,255,0.06); }
     #topbar.hidden { display: none; }
-    #canvas { width: 100%; height: 100%; display: block; }
+    #stage { display: flex; align-items: center; justify-content: center; background: transparent; width: 100%; height: 100%; }
+    #canvas { display: block; background: transparent; }
     #meta { font-size: 12px; color: #9fb0c8; display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
     #meta b { color: #e6eefc; }
   </style>
@@ -39,7 +43,9 @@
       <div style="height:10px"></div>
       <div id="meta"></div>
     </div>
-    <canvas id="canvas"></canvas>
+    <div id="stage">
+      <canvas id="canvas"></canvas>
+    </div>
   </div>
 
 <script type="module">
@@ -50,9 +56,14 @@ const qs = new URLSearchParams(location.search);
 const embed = qs.get("embed") === "1";
 
 const topbar = document.getElementById("topbar");
-if(embed) topbar.classList.add("hidden");
+if(embed){
+  topbar.classList.add("hidden");
+  document.documentElement.classList.add("embed");
+  document.body.classList.add("embed");
+}
 
-const canvas = document.getElementById("canvas");
+let canvas = document.getElementById("canvas");
+const wrap = document.getElementById("wrap");
 const vizSel = document.getElementById("vizSel");
 const gainEl = document.getElementById("gain");
 const vsmoothEl = document.getElementById("vsmooth");
@@ -66,9 +77,20 @@ function currentVizFromPath(){
 
 function resize(){
   const dpr = window.devicePixelRatio || 1;
-  const rect = canvas.getBoundingClientRect();
-  canvas.width = Math.max(2, Math.floor(rect.width * dpr));
-  canvas.height = Math.max(2, Math.floor(rect.height * dpr));
+  const wrapRect = wrap.getBoundingClientRect();
+  let availW = wrapRect.width;
+  let availH = wrapRect.height;
+  if(!embed){
+    const topRect = topbar.getBoundingClientRect();
+    availH = Math.max(0, availH - topRect.height);
+  }
+  const scale = 0.8;
+  const cssW = Math.max(2, Math.floor(availW * scale));
+  const cssH = Math.max(2, Math.floor(availH * scale));
+  canvas.style.width = `${cssW}px`;
+  canvas.style.height = `${cssH}px`;
+  canvas.width = Math.max(2, Math.floor(cssW * dpr));
+  canvas.height = Math.max(2, Math.floor(cssH * dpr));
   if(viz && viz.onResize) viz.onResize(canvas.width, canvas.height, dpr);
 }
 window.addEventListener("resize", resize);
@@ -84,14 +106,40 @@ let vizName = currentVizFromPath();
 if(!registry.get(vizName)) vizName = "spectrum";
 vizSel.value = vizName;
 
+let currentRenderer = (registry.get(vizName)?.renderer ?? "2d");
+
+function replaceCanvas(){
+  const old = canvas;
+  const nu = old.cloneNode(false);
+  old.replaceWith(nu);
+  canvas = nu;
+}
+
 let viz = null;
 let latestFrame = null;
 let lastState = { samplerate: 48000, fft_size: 2048 };
+let vizError = null;
 
 function setViz(name){
   if(viz && viz.destroy) viz.destroy();
   vizName = name;
-  viz = createVisualizer(name, canvas);
+  const nextRenderer = (registry.get(name)?.renderer ?? "2d");
+  if(nextRenderer !== currentRenderer){
+    replaceCanvas();
+    currentRenderer = nextRenderer;
+  }
+  try{
+    viz = createVisualizer(name, canvas);
+    vizError = null;
+  }catch(err){
+    viz = null;
+    vizError = err;
+    console.error(err);
+    if(!embed){
+      meta.innerHTML = `Visualizer error: <b>${err.message || err}</b>`;
+    }
+    return;
+  }
   if(!embed){
     history.replaceState({}, "", `/v/${name}${location.search}`);
   }
@@ -110,7 +158,8 @@ async function pollState(){
     lastState = { samplerate: st.samplerate || 48000, fft_size: st.fft_size || 2048 };
     const rms = (st.metrics?.rms||[]).map(x=>x.toFixed(4)).join(",");
     const peak = (st.metrics?.peak||[]).map(x=>x.toFixed(4)).join(",");
-    meta.innerHTML = `Status <b>${st.status}</b> | ws <b>${st.ws_clients}</b> | rms <b>${rms}</b> | peak <b>${peak}</b> | fft <b>${st.fft_size}</b>`;
+    const err = vizError ? ` | visualizer <b style="color:#ff6b6b">error</b>` : "";
+    meta.innerHTML = `Status <b>${st.status}</b> | ws <b>${st.ws_clients}</b> | rms <b>${rms}</b> | peak <b>${peak}</b> | fft <b>${st.fft_size}</b>${err}`;
   }catch(e){}
 }
 setInterval(pollState, 800);
@@ -123,6 +172,7 @@ connectAudioWS({
 
 let lastSpectrum = null;
 let lastWave = null;
+let lastWaveLR = null;
 
 function smoothArray(prev, cur, alpha){
   if(!prev || prev.length !== cur.length){
@@ -145,24 +195,29 @@ function animate(){
   const alpha = Number(vsmoothEl.value);
 
   const spectrum = latestFrame.spectrum;
-  const wave = latestFrame.timeDomain;
+  const waveLR = latestFrame.timeDomain;
   const ch = latestFrame.channels;
 
   let monoWave;
   if(ch === 1){
-    monoWave = wave;
+    monoWave = waveLR;
   }else{
-    const n = Math.floor(wave.length / 2);
+    const n = Math.floor(waveLR.length / 2);
     if(!viz._mono || viz._mono.length !== n) viz._mono = new Float32Array(n);
     const m = viz._mono;
     for(let i=0;i<n;i++){
-      m[i] = 0.5*(wave[2*i] + wave[2*i+1]);
+      m[i] = 0.5*(waveLR[2*i] + waveLR[2*i+1]);
     }
     monoWave = m;
   }
 
   lastSpectrum = smoothArray(lastSpectrum, spectrum, alpha);
   lastWave = smoothArray(lastWave, monoWave, alpha);
+  if(ch === 2){
+    lastWaveLR = smoothArray(lastWaveLR, waveLR, alpha);
+  }else{
+    lastWaveLR = null;
+  }
 
   const frame = {
     frameId: latestFrame.frameId,
@@ -171,6 +226,8 @@ function animate(){
     rms: latestFrame.rms,
     peak: latestFrame.peak,
     corr: latestFrame.corr,
+    overlay: embed,
+    waveLR: lastWaveLR,
     spectrum: lastSpectrum,
     wave: lastWave,
     gain,

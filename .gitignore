@@ -1,6 +1,8 @@
 ﻿.venv/
 __pycache__/
 *.pyc
+*.ps1
+*.zip
 node_modules/
 dist/
 build/

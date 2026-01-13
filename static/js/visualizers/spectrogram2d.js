@@ -55,8 +55,7 @@ export class Spectrogram2D {
     this.octx.putImageData(this._imageRow, 0, 0);
 
     const ctx = this.ctx;
-    ctx.fillStyle = "rgba(0,0,0,0.12)";
-    ctx.fillRect(0,0,w,h);
+    ctx.clearRect(0,0,w,h);
 
     ctx.save();
     ctx.translate(0, h);

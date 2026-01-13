@@ -19,7 +19,11 @@ VISUALIZERS = [
     {"id": "spectrum", "name": "Spectrum Bars", "renderer": "2d"},
     {"id": "oscilloscope", "name": "Oscilloscope", "renderer": "2d"},
     {"id": "spectrogram", "name": "Waterfall Spectrogram", "renderer": "2d"},
+    {"id": "vectorscope", "name": "Stereo Vectorscope / Goniometer", "renderer": "2d"},
+    {"id": "chroma", "name": "Chromagram / Pitch-Class Ring", "renderer": "2d"},
     {"id": "plasma", "name": "Neon Plasma (WebGL)", "renderer": "webgl"},
+    {"id": "feedback", "name": "Feedback Mirror (WebGL)", "renderer": "webgl"},
+    {"id": "tunnel", "name": "Tunnel / Warp Speed (WebGL)", "renderer": "webgl"},
 ]
 
 
@@ -201,7 +205,15 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
 
 class ServerThread:
     def __init__(self, app: FastAPI, host: str, port: int) -> None:
-        self.config = uvicorn.Config(app=app, host=host, port=port, log_level="warning", access_log=False)
+        self.config = uvicorn.Config(
+            app=app,
+            host=host,
+            port=port,
+            log_level="warning",
+            access_log=False,
+            ws="wsproto",
+            ws_ping_interval=None,
+        )
         self.server = uvicorn.Server(self.config)
         self.thread: Optional[threading.Thread] = None
 

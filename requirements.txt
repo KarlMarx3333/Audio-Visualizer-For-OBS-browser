@@ -4,3 +4,4 @@ sounddevice>=0.4.6
 numpy>=1.26
 pystray>=0.19
 pillow>=10.0
+wsproto>=1.2

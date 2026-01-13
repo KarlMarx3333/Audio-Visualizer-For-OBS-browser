@@ -19,11 +19,10 @@ export class Spectrum2D {
     const h = this.canvas.height;
 
     ctx.clearRect(0,0,w,h);
-    ctx.fillStyle = "rgba(0,0,0,0.18)";
-    ctx.fillRect(0,0,w,h);
 
     const spec = frame.spectrum;
     const gain = frame.gain;
+    const overlay = !!frame.overlay;
 
     const bars = Math.min(120, Math.max(40, Math.floor(w / 16)));
     const minHz = 40;
@@ -40,8 +39,8 @@ export class Spectrum2D {
     const logMax = Math.log(maxHz);
     const barW = w / bars;
 
-    ctx.fillStyle = "rgba(139,213,255,0.85)";
-    ctx.strokeStyle = "rgba(255,255,255,0.12)";
+    ctx.fillStyle = overlay ? "rgba(139,213,255,1)" : "rgba(139,213,255,0.85)";
+    ctx.strokeStyle = overlay ? "rgba(255,255,255,0.35)" : "rgba(255,255,255,0.12)";
     ctx.lineWidth = Math.max(1, Math.floor(1 * this._dpr));
 
     for(let i=0;i<bars;i++){

@@ -25,6 +25,9 @@ export class PlasmaWebGL {
       uniform float u_energy;
       uniform float u_bass;
       uniform float u_treble;
+      uniform int u_overlay;
+      uniform float u_overlayBoost;
+      uniform float u_viewScale;
 
       vec3 palette(float t){
         vec3 a = vec3(0.10, 0.10, 0.20);
@@ -35,9 +38,10 @@ export class PlasmaWebGL {
       }
 
       void main(){
-        vec2 uv = v_uv;
-        vec2 p = (uv * 2.0 - 1.0);
-        p.x *= u_res.x / u_res.y;
+        vec2 uv = v_uv * 2.0 - 1.0;
+        uv.x *= u_res.x / u_res.y;
+        uv *= u_viewScale;
+        vec2 p = uv;
 
         float t = u_time * (0.35 + 1.2*u_bass);
         float e = u_energy;
@@ -65,7 +69,17 @@ export class PlasmaWebGL {
         float vig = smoothstep(1.2, 0.2, r);
         col *= vig;
 
-        gl_FragColor = vec4(col, 1.0);
+        if(u_overlay == 1){
+          col *= u_overlayBoost;
+          col = pow(col, vec3(0.85));
+          col = min(col, vec3(1.0));
+          float lum = max(col.r, max(col.g, col.b));
+          float a = smoothstep(0.03, 0.15, lum);
+          gl_FragColor = vec4(col, a);
+        }else{
+          float alpha = clamp(glow * (0.35 + 0.65*e) * vig, 0.0, 1.0);
+          gl_FragColor = vec4(col, alpha);
+        }
       }
     `;
 
@@ -78,6 +92,9 @@ export class PlasmaWebGL {
     this.uEnergy = this.gl.getUniformLocation(this.program, "u_energy");
     this.uBass = this.gl.getUniformLocation(this.program, "u_bass");
     this.uTreble = this.gl.getUniformLocation(this.program, "u_treble");
+    this.uOverlay = this.gl.getUniformLocation(this.program, "u_overlay");
+    this.uOverlayBoost = this.gl.getUniformLocation(this.program, "u_overlayBoost");
+    this.uViewScale = this.gl.getUniformLocation(this.program, "u_viewScale");
 
     this._t0 = performance.now();
     this._energy = 0;
@@ -101,6 +118,7 @@ export class PlasmaWebGL {
     const gl = this.gl;
     const spec = frame.spectrum;
     const rms = (frame.rms && frame.rms[0]) ? frame.rms[0] : 0;
+    const overlay = !!frame.overlay;
 
     const bass = this._band(spec, 2, 50) * frame.gain;
     const treble = this._band(spec, Math.floor(spec.length*0.55), Math.floor(spec.length*0.95)) * frame.gain;
@@ -112,6 +130,13 @@ export class PlasmaWebGL {
 
     const t = (performance.now() - this._t0) / 1000.0;
 
+    if(overlay){
+      gl.clearColor(0, 0, 0, 0);
+    }else{
+      gl.clearColor(0, 0, 0, 1);
+    }
+    gl.clear(gl.COLOR_BUFFER_BIT);
+
     gl.useProgram(this.program);
     gl.bindBuffer(gl.ARRAY_BUFFER, this.vb);
     gl.enableVertexAttribArray(this.aPos);
@@ -122,6 +147,9 @@ export class PlasmaWebGL {
     gl.uniform1f(this.uEnergy, this._energy);
     gl.uniform1f(this.uBass, this._bass);
     gl.uniform1f(this.uTreble, this._treble);
+    gl.uniform1i(this.uOverlay, overlay ? 1 : 0);
+    gl.uniform1f(this.uOverlayBoost, overlay ? 2.5 : 1.0);
+    gl.uniform1f(this.uViewScale, overlay ? 1.18 : 1.0);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
   }
