@@ -54,6 +54,7 @@ import { registry, createVisualizer } from "/static/js/visualizers/registry.js";
 
 const qs = new URLSearchParams(location.search);
 const embed = qs.get("embed") === "1";
+const debug = qs.get("debug") === "1";
 
 const topbar = document.getElementById("topbar");
 if(embed){
@@ -121,30 +122,117 @@ let viz = null;
 let latestFrame = null;
 let lastState = { samplerate: 48000, fft_size: 2048 };
 let vizError = null;
+const debugBadge = debug ? document.createElement("div") : null;
+if(debugBadge){
+  debugBadge.style.cssText = "position:fixed;right:8px;bottom:8px;z-index:9999;background:rgba(200,40,40,0.9);color:#fff;padding:4px 6px;border-radius:4px;font:11px/1.2 sans-serif;pointer-events:none;display:none;";
+  document.body.appendChild(debugBadge);
+}
+
+function errorText(err){
+  if(!err) return "";
+  if(typeof err === "string") return err;
+  if(err.message) return err.message;
+  return String(err);
+}
+
+function updateErrorBadge(){
+  if(!debugBadge) return;
+  if(!vizError){
+    debugBadge.style.display = "none";
+    debugBadge.removeAttribute("title");
+    return;
+  }
+  debugBadge.style.display = "block";
+  debugBadge.textContent = "viz error";
+  debugBadge.title = errorText(vizError);
+}
+
+function recordVizError(err){
+  vizError = err;
+  updateErrorBadge();
+}
+
+function clearVizError(){
+  vizError = null;
+  updateErrorBadge();
+}
+
+window.addEventListener("error", (e)=>{
+  const err = e.error || e.message || e;
+  console.error(err);
+  recordVizError(err);
+});
+
+window.addEventListener("unhandledrejection", (e)=>{
+  console.error(e.reason);
+  recordVizError(e.reason);
+});
 
 function setViz(name){
-  if(viz && viz.destroy) viz.destroy();
-  vizName = name;
-  const nextRenderer = (registry.get(name)?.renderer ?? "2d");
-  if(nextRenderer !== currentRenderer){
-    replaceCanvas();
-    currentRenderer = nextRenderer;
+  let destroyError = null;
+  let destroyFailed = false;
+  if(viz && viz.destroy){
+    try{
+      viz.destroy();
+    }catch(err){
+      destroyError = err;
+      destroyFailed = true;
+      console.error("destroy failed", err);
+      recordVizError(err);
+    }
   }
-  try{
-    viz = createVisualizer(name, canvas);
-    vizError = null;
-  }catch(err){
-    viz = null;
-    vizError = err;
-    console.error(err);
+
+  viz = null;
+  vizName = name;
+
+  const nextRenderer = (registry.get(name)?.renderer ?? "2d");
+  if(destroyFailed || nextRenderer !== currentRenderer || (currentRenderer === "webgl" && nextRenderer === "webgl")){
+    replaceCanvas();
+  }
+
+  const tryCreate = (id)=>{
+    try{
+      viz = createVisualizer(id, canvas);
+      vizName = id;
+      return null;
+    }catch(err){
+      console.error(err);
+      return err;
+    }
+  };
+
+  let err = tryCreate(name);
+  if(err){
+    recordVizError(err);
+    const fallback = name !== "spectrum" && registry.get("spectrum") ? "spectrum" : null;
+    if(fallback){
+      replaceCanvas();
+      err = tryCreate(fallback);
+      if(err){
+        recordVizError(err);
+        viz = null;
+      }else if(vizSel.value !== fallback){
+        vizSel.value = fallback;
+      }
+    }else{
+      viz = null;
+    }
+  }else if(!destroyError){
+    clearVizError();
+  }
+
+  if(!viz){
     if(!embed){
-      meta.innerHTML = `Visualizer error: <b>${err.message || err}</b>`;
+      meta.innerHTML = `Visualizer error: <b>${errorText(vizError)}</b>`;
     }
     return;
   }
+
+  currentRenderer = (registry.get(vizName)?.renderer ?? "2d");
+
   const allowHistory = location.pathname.startsWith("/v/");
   if(!embed && allowHistory){
-    history.replaceState({}, "", `/v/${name}${location.search}`);
+    history.replaceState({}, "", `/v/${vizName}${location.search}`);
   }
   resize();
 }

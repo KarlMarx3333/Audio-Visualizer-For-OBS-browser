@@ -39,26 +39,38 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 │       │   ├── chroma_ring2d.js
 │       │   ├── plasma_webgl.js
 │       │   ├── feedback_webgl.js
-│       │   └── tunnel_webgl.js
+│       │   ├── tunnel_webgl.js
+│       │   └── particle_swarm_webgl2.js
 │       └── webgl/util.js
+├── Demo/
+│   ├── particle_swarm_demo.png
+│   ├── tunnel_webgl_demo.png
+│   ├── feedback_demo.png
+│   ├── plasma_demo.png
+│   ├── chroma_ring_demo.png
+│   ├── vectorscope_demo.png
+│   ├── spectrogram_demo.png
+│   ├── oscilloscope_demo.png
+│   └── spectrum_demo.png
 ├── requirements.txt
 ├── README.md
+├── README.txt
 ├── Repo_zipper.ps1
 └── ARCHITECTURE.md
 ```
 - `app/`: Python runtime code only; do not place static assets or generated files here.
 - `static/`: Browser UI and visualizers; do not place Python modules or runtime config here.
-- Repo root files (`requirements.txt`, `README.md`, `Repo_zipper.ps1`): docs and helper scripts; keep runtime code under `app/`.
+- Repo root files (`requirements.txt`, `README.md`, `README.txt`, `Repo_zipper.ps1`): docs and helper scripts; keep runtime code under `app/`.
 
 ## Core components
 - **Bootstrap and lifecycle** Purpose: wire everything together and own shutdown flow; Key files: `app/__main__.py`, `app/main.py`; Public interfaces / classes: `main`; Depends on: `AppConfig`, `StateStore`, `AudioEngine`, `Analyzer`, `create_app`, `ServerThread`, `TrayApp`; Used by: `python -m app`.
-- **Config system** Purpose: load/save settings and clamp valid ranges; Key files: `app/config.py`; Public interfaces / classes: `AppConfig`, `load_config`, `save_config`, `config_path`, `update_config`; Depends on: `json`, `Path`, `os`; Used by: `app/main.py`, `app/server.py`, `app/tray.py`.
+- **Config system** Purpose: load/save settings and clamp valid ranges (including visualizer gain/visual smoothing); Key files: `app/config.py`; Public interfaces / classes: `AppConfig`, `load_config`, `save_config`, `config_path`, `update_config`; Depends on: `json`, `Path`, `os`; Used by: `app/main.py`, `app/server.py`, `app/tray.py`.
 - **Audio capture** Purpose: device discovery, background capture, ring buffer; Key files: `app/audio_engine.py`; Public interfaces / classes: `AudioEngine`, `RingBuffer`, `list_input_devices`; Depends on: `sounddevice`, `numpy`, `threading`; Used by: `Analyzer`, `TrayApp`, `create_app` (devices API).
 - **Analysis** Purpose: compute spectrum/time-domain metrics from latest audio; Key files: `app/analysis.py`; Public interfaces / classes: `Analyzer`, `hann_window`; Depends on: `numpy`, `AudioEngine`; Used by: `app/main.py` monitor thread, `app/server.py` WebSocket handler.
 - **State store** Purpose: shared, thread-safe snapshot of app status and metrics; Key files: `app/state.py`; Public interfaces / classes: `StateStore`, `AppState`, `Metrics`; Depends on: `threading`, `dataclasses`; Used by: `main()` monitor thread, `TrayApp`, `create_app`.
 - **HTTP/WebSocket server** Purpose: serve UI assets and stream analysis frames; Key files: `app/server.py`; Public interfaces / classes: `create_app`, `ServerThread`, `VISUALIZERS`; Depends on: `FastAPI`, `uvicorn`, `StateStore`, `Analyzer`, `AudioEngine`; Used by: `app/main.py`, browser UI in `static/`. Provides `/render` (stable OBS URL) and `/v/{name}` (fixed visualizer links).
-- **Tray UI** Purpose: native tray icon and menus for device/visualizer selection; Key files: `app/tray.py`; Public interfaces / classes: `TrayApp`; Depends on: `pystray`, `PIL`, `StateStore`, `AudioEngine`, `VISUALIZERS`; Used by: `app/main.py`.
-- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`, `static/js/webgl/util.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `Spectrum2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source. `static/visualizer.html` manages embed mode (transparent overlay), canvas sizing (~80% of available area), renderer switching (2D vs WebGL) by replacing the canvas when needed, and follows the server-selected visualizer when loaded via `/render`.
+- **Tray UI** Purpose: native tray icon and menus for device/visualizer selection plus the Audio Tuning window (gain + visual smoothing); Key files: `app/tray.py`; Public interfaces / classes: `TrayApp`; Depends on: `pystray`, `PIL`, `StateStore`, `AudioEngine`, `VISUALIZERS`, optional `tkinter`; Used by: `app/main.py`.
+- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`, `static/js/webgl/util.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `Spectrum2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source. `static/visualizer.html` manages embed mode (transparent overlay), canvas sizing (~80% of available area), renderer switching (2D vs WebGL) by replacing the canvas when needed, reads gain/visual smoothing from `/api/state`, and follows the server-selected visualizer when loaded via `/render`.
 
 ## Data flow
 Primary happy path: audio input is captured, analyzed, and streamed to the browser.
@@ -67,7 +79,7 @@ Mic -> AudioEngine(InputStream callback) -> RingBuffer
      -> Analyzer(thread) -> StateStore(metrics)
      -> FastAPI /ws/audio -> ws_client.js -> Visualizer.onFrame()
 ```
-User configuration updates follow two paths: tray menu actions call `AudioEngine.configure()` and `save_config()` in `app/tray.py`, and the web UI posts to `/api/device` or `/api/options` in `app/server.py`, which update config/state and restart the audio engine when needed.
+User configuration updates follow two paths: tray menu actions call `AudioEngine.configure()` and `save_config()` in `app/tray.py`, and the web UI posts to `/api/device` or `/api/options` in `app/server.py`, which update config/state and restart the audio engine when needed. Gain and visual smoothing are tray-only controls, exposed via `/api/state` and mirrored by `static/visualizer.html`.
 Visualizer selection updates from the tray or `/api/visualizer` update `StateStore`, and `/render` clients poll `/api/state` to swap visualizers without changing URL.
 
 ## Concurrency and threading
@@ -81,6 +93,7 @@ Visualizer selection updates from the tray or `/api/visualizer` update `StateSto
 ## Configuration
 - Config file lives in `%APPDATA%/ObsVizHost/config.json` on Windows, or `~/.obsvizhost/config.json` as a fallback; see `app/config.py`.
 - `AppConfig` defaults are applied, `load_config()` merges JSON keys if present, and `AppConfig.clamp()` enforces ranges.
+- Visualizer controls are split: `gain` (0.2..4.0) and `visual_smoothing` (0.0..0.95) are tray-managed, while `smoothing` (0.0..0.99) is for analyzer smoothing in `app/analysis.py`.
 - To add a new setting: add it to `AppConfig`, update `clamp()` if needed, and update `main()`/`StateStore`/API handlers and UI fields that expose it.
 
 ## Extensibility points

@@ -41,6 +41,17 @@ export class ParticleSwarmWebGL2 {
       this.gl instanceof WebGL2RenderingContext;
 
     const gl = this.gl;
+    this._destroyed = false;
+    this._rafId = null;
+    this._onContextLost = (event) => {
+      if (event) event.preventDefault();
+      this._destroyed = true;
+    };
+    this._onContextRestored = () => {
+      this._destroyed = true;
+    };
+    canvas.addEventListener("webglcontextlost", this._onContextLost);
+    canvas.addEventListener("webglcontextrestored", this._onContextRestored);
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
 
@@ -153,6 +164,8 @@ export class ParticleSwarmWebGL2 {
 
   onResize() {
     const gl = this.gl;
+    if (this._destroyed || !gl) return;
+    if (gl.isContextLost && gl.isContextLost()) return;
     const w = this.canvas.width | 0;
     const h = this.canvas.height | 0;
     if (w <= 2 || h <= 2) return;
@@ -176,6 +189,8 @@ export class ParticleSwarmWebGL2 {
 
   onFrame(frame) {
     const gl = this.gl;
+    if (this._destroyed || !gl) return;
+    if (gl.isContextLost && gl.isContextLost()) return;
     const w = this.canvas.width | 0;
     const h = this.canvas.height | 0;
     if (w <= 2 || h <= 2) return;
@@ -394,17 +409,64 @@ export class ParticleSwarmWebGL2 {
   }
 
   destroy() {
+    if (this._destroyed) return;
+    this._destroyed = true;
+
+    if (this._rafId) {
+      try {
+        cancelAnimationFrame(this._rafId);
+      } catch (_) {}
+      this._rafId = null;
+    }
+
+    if (this.canvas) {
+      try {
+        this.canvas.removeEventListener("webglcontextlost", this._onContextLost);
+        this.canvas.removeEventListener("webglcontextrestored", this._onContextRestored);
+      } catch (_) {}
+    }
+
     const gl = this.gl;
-    if (!gl) return;
-    try {
-      gl.deleteProgram(this._progFeedback);
-      gl.deleteProgram(this._progPresent);
-      gl.deleteProgram(this._progParticles);
-      gl.deleteBuffer(this._quadVB);
-      gl.deleteBuffer(this._vboParticles);
-      this._deleteTarget(this._texA, this._fbA);
-      this._deleteTarget(this._texB, this._fbB);
-    } catch (_) {}
+    if (!gl) {
+      this.canvas = null;
+      return;
+    }
+
+    try { gl.bindFramebuffer(gl.FRAMEBUFFER, null); } catch (_) {}
+    try { gl.bindBuffer(gl.ARRAY_BUFFER, null); } catch (_) {}
+    try { gl.bindTexture(gl.TEXTURE_2D, null); } catch (_) {}
+    try { gl.useProgram(null); } catch (_) {}
+    if (this.isWebGL2 && gl.bindVertexArray) {
+      try { gl.bindVertexArray(null); } catch (_) {}
+    }
+
+    const safe = (fn) => {
+      try { fn(); } catch (_) {}
+    };
+    safe(() => gl.deleteProgram(this._progFeedback));
+    safe(() => gl.deleteProgram(this._progPresent));
+    safe(() => gl.deleteProgram(this._progParticles));
+    safe(() => gl.deleteBuffer(this._quadVB));
+    safe(() => gl.deleteBuffer(this._vboParticles));
+    safe(() => this._deleteTarget(this._texA, this._fbA));
+    safe(() => this._deleteTarget(this._texB, this._fbB));
+
+    this._progFeedback = null;
+    this._progPresent = null;
+    this._progParticles = null;
+    this._quadVB = null;
+    this._vboParticles = null;
+    this._texA = null;
+    this._texB = null;
+    this._fbA = null;
+    this._fbB = null;
+    this._readTex = null;
+    this._writeTex = null;
+    this._readFB = null;
+    this._writeFB = null;
+
+    this.gl = null;
+    this.canvas = null;
   }
 
   // ------------------ Particles (CPU sim) ------------------
@@ -605,8 +667,13 @@ export class ParticleSwarmWebGL2 {
 
   _deleteTarget(tex, fb) {
     const gl = this.gl;
-    if (fb) gl.deleteFramebuffer(fb);
-    if (tex) gl.deleteTexture(tex);
+    if (!gl) return;
+    try {
+      if (fb) gl.deleteFramebuffer(fb);
+    } catch (_) {}
+    try {
+      if (tex) gl.deleteTexture(tex);
+    } catch (_) {}
   }
 
   // ------------------ Shaders / compile ------------------

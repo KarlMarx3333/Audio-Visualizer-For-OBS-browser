@@ -11,19 +11,15 @@ export class FeedbackMirrorWebGL {
     this.canvas = canvas;
 
     // --- WebGL context (alpha overlay friendly)
+    const glOpts = {
+      alpha: true,
+      antialias: false,
+      premultipliedAlpha: false,
+      preserveDrawingBuffer: false,
+    };
     this.gl =
-      canvas.getContext("webgl", {
-        alpha: true,
-        antialias: false,
-        premultipliedAlpha: false,
-        preserveDrawingBuffer: false,
-      }) ||
-      canvas.getContext("experimental-webgl", {
-        alpha: true,
-        antialias: false,
-        premultipliedAlpha: false,
-        preserveDrawingBuffer: false,
-      });
+      canvas.getContext("webgl", glOpts) ||
+      canvas.getContext("experimental-webgl", glOpts);
 
     if (!this.gl) throw new Error("WebGL not available");
 

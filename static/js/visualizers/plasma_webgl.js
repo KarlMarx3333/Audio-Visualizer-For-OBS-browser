@@ -18,7 +18,11 @@ export class PlasmaWebGL {
       }
     `;
     const fs = `
+      #ifdef GL_FRAGMENT_PRECISION_HIGH
+      precision highp float;
+      #else
       precision mediump float;
+      #endif
       varying vec2 v_uv;
       uniform vec2 u_res;
       uniform float u_time;
@@ -97,6 +101,8 @@ export class PlasmaWebGL {
     this.uViewScale = this.gl.getUniformLocation(this.program, "u_viewScale");
 
     this._t0 = performance.now();
+    this._t = 0;
+    this._lastNow = this._t0;
     this._energy = 0;
     this._bass = 0;
     this._treble = 0;
@@ -124,11 +130,17 @@ export class PlasmaWebGL {
     const treble = this._band(spec, Math.floor(spec.length*0.55), Math.floor(spec.length*0.95)) * frame.gain;
 
     const a = 0.85;
-    this._energy = a*this._energy + (1-a)*Math.min(1.0, rms*6.0);
-    this._bass = a*this._bass + (1-a)*Math.min(1.0, bass*18.0);
-    this._treble = a*this._treble + (1-a)*Math.min(1.0, treble*30.0);
+    const clamp01 = (x)=> (Number.isFinite(x) ? Math.max(0, Math.min(1, x)) : 0);
+    this._energy = a*this._energy + (1-a)*clamp01(rms*6.0);
+    this._bass = a*this._bass + (1-a)*clamp01(bass*18.0);
+    this._treble = a*this._treble + (1-a)*clamp01(treble*30.0);
 
-    const t = (performance.now() - this._t0) / 1000.0;
+    // Avoid "time gets huge" precision issues + huge dt jumps after tab stalls.
+    const now = performance.now();
+    const dt = Math.min(0.05, Math.max(0.0, (now - this._lastNow) / 1000.0));
+    this._lastNow = now;
+    this._t = (this._t + dt) % 600.0;
+    const t = this._t;
 
     if(overlay){
       gl.clearColor(0, 0, 0, 0);

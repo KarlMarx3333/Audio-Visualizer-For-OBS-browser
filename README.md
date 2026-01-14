@@ -16,6 +16,11 @@ python -m app.main
 
 A tray icon appears. Use **Open UI** to open the control page, or select visualizers/devices from the tray to change the active visualizer for `/render` clients.
 
+## Audio tuning (tray)
+Use the tray menu **Audio Tuning...** to adjust **Gain** (0.2..4.0) and **Visual Smoothing** (0.0..0.95).  
+Values persist in `config.json` and apply live, including OBS embed mode.  
+The Gain/Smoothing sliders in the visualizer UI are read-only and mirror the tray values.
+
 ## OBS Browser Source (stable URL)
 Use the stable endpoint so OBS never needs a new URL:
 - `http://127.0.0.1:8787/render?embed=1`
@@ -26,10 +31,11 @@ Interactive preview:
 Direct, fixed visualizer links (no auto-switch):
 - `http://127.0.0.1:8787/v/spectrum?embed=1`
 - `http://127.0.0.1:8787/v/plasma?embed=1`
+- `http://127.0.0.1:8787/v/swarm?embed=1`
 
 ## Included visualizers Demos
 
-### Particle Swarm
+### Particle Swarm / Explosions (WebGL2)
 ![Particle Swarm](Demo/particle_swarm_demo.png)
 
 ### Tunnel (WebGL)
