@@ -54,13 +54,12 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 │   └── spectrum_demo.png
 ├── requirements.txt
 ├── README.md
-├── README.txt
 ├── Repo_zipper.ps1
 └── ARCHITECTURE.md
 ```
 - `app/`: Python runtime code only; do not place static assets or generated files here.
 - `static/`: Browser UI and visualizers; do not place Python modules or runtime config here.
-- Repo root files (`requirements.txt`, `README.md`, `README.txt`, `Repo_zipper.ps1`): docs and helper scripts; keep runtime code under `app/`.
+- Repo root files (`requirements.txt`, `README.md`, `Repo_zipper.ps1`): docs and helper scripts; keep runtime code under `app/`.
 
 ## Core components
 - **Bootstrap and lifecycle** Purpose: wire everything together and own shutdown flow; Key files: `app/__main__.py`, `app/main.py`; Public interfaces / classes: `main`; Depends on: `AppConfig`, `StateStore`, `AudioEngine`, `Analyzer`, `create_app`, `ServerThread`, `TrayApp`; Used by: `python -m app`.
