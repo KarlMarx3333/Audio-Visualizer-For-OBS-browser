@@ -78,6 +78,7 @@ export class ParticleSwarmWebGL2 {
     this._bass = 0;
     this._mid = 0;
     this._treble = 0;
+    this._specBuf = null;
     this._smooth = 0.86;
 
     // kick detector
@@ -212,7 +213,15 @@ export class ParticleSwarmWebGL2 {
     this._avgDt = this._avgDt * 0.92 + dt * 0.08;
 
     // ----- audio features -----
-    const spec = frame?.spectrum;
+    const srcSpec = frame?.spectrum;
+    let spec = srcSpec;
+    if(srcSpec){
+      if(!this._specBuf || this._specBuf.length !== srcSpec.length){
+        this._specBuf = new Float32Array(srcSpec.length);
+      }
+      this._specBuf.set(srcSpec);
+      spec = this._specBuf;
+    }
     const sr = frame?.samplerate || 48000;
     const nfft =
       frame?.fftSize ||

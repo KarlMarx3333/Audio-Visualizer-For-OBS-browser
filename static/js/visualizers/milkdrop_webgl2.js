@@ -56,10 +56,15 @@ export class MilkdropWarpReactorWebGL2 {
     this._mid = 0;
     this._treble = 0;
     this._energy = 0;
+    this._specBuf = null;
 
     // Kick transient
     this._prevBass = 0;
     this._kick = 0;
+
+    // GPU-driven spawn phase (used by shader for stable per-spawn randomness)
+    this._spawnPhase = 0;
+    this._spawnRate = 0;
 
     // Fullscreen quad
     this.vb = createFullscreenQuad(gl);
@@ -80,6 +85,7 @@ export class MilkdropWarpReactorWebGL2 {
     this.uTreble = loc(this.progFB, "u_treble");
     this.uEnergy = loc(this.progFB, "u_energy");
     this.uKick = loc(this.progFB, "u_kick");
+    this.uSpawn = loc(this.progFB, "u_spawn");
 
     // Locations (present)
     this.aPosPR = gl.getAttribLocation(this.progPresent, "a_pos");
@@ -153,7 +159,9 @@ export class MilkdropWarpReactorWebGL2 {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    const internalFormat = this.isWebGL2 && gl.RGBA8 ? gl.RGBA8 : gl.RGBA;
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.bindTexture(gl.TEXTURE_2D, null);
     return t;
   }
@@ -163,6 +171,10 @@ export class MilkdropWarpReactorWebGL2 {
     const fb = gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
     gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
+    const status = gl.checkFramebufferStatus(gl.FRAMEBUFFER);
+    if (status !== gl.FRAMEBUFFER_COMPLETE) {
+      throw new Error(`Milkdrop: framebuffer incomplete (0x${status.toString(16)})`);
+    }
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
     return fb;
   }
@@ -207,7 +219,15 @@ export class MilkdropWarpReactorWebGL2 {
     this._lastNow = now;
     dt = Math.min(0.05, Math.max(0.0, dt));
 
-    const spec = frame?.spectrum;
+    const srcSpec = frame?.spectrum;
+    let spec = srcSpec;
+    if(srcSpec){
+      if(!this._specBuf || this._specBuf.length !== srcSpec.length){
+        this._specBuf = new Float32Array(srcSpec.length);
+      }
+      this._specBuf.set(srcSpec);
+      spec = this._specBuf;
+    }
     const gain = Number(frame?.gain ?? 1);
     const sr = Number(frame?.samplerate ?? 48000);
     const fftSize = Number(frame?.fftSize ?? 2048);
@@ -229,6 +249,14 @@ export class MilkdropWarpReactorWebGL2 {
     const kickDecayRate = 8.0;
     this._kick *= Math.exp(-dt * kickDecayRate);
     this._kick = Math.max(this._kick, Math.min(1, db * 7.0));
+
+    // Advance shader spawn phase.
+    // Silence -> very slow (almost no new shapes); loud/kick -> faster spawns.
+    const mag = Math.max(0, Math.min(1, 0.55 * this._energy + 0.45 * this._bass));
+    const targetSpawnRate = (0.08 + 1.65 * mag) * (1.0 + 0.75 * this._kick);
+    const srA = Math.exp(-dt * 6.0);
+    this._spawnRate = srA * this._spawnRate + (1 - srA) * targetSpawnRate;
+    this._spawnPhase += dt * this._spawnRate;
 
     const t = (now - this._t0) * 0.001;
 
@@ -254,6 +282,7 @@ export class MilkdropWarpReactorWebGL2 {
     gl.uniform1f(this.uTreble, this._treble);
     gl.uniform1f(this.uEnergy, this._energy);
     gl.uniform1f(this.uKick, this._kick);
+    if (this.uSpawn) gl.uniform1f(this.uSpawn, this._spawnPhase);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -336,6 +365,7 @@ uniform float u_mid;
 uniform float u_treble;
 uniform float u_energy;
 uniform float u_kick;
+uniform float u_spawn;
 
 float hash12(vec2 p){
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -476,44 +506,55 @@ void main(){
   // Pure GPU procedural emitters; trails come for free from feedback.
   // Keep count modest for perf; increase to 12 if you want more density.
   const int SHAPES = 9;
+  float mag = clamp(0.55*u_energy + 0.45*u_bass, 0.0, 1.0);
+  // How many slots are allowed to show (silence -> almost none; loud -> most/all)
+  float enableLevel = clamp(0.08 + 0.85*mag + 0.55*u_kick, 0.0, 1.0);
+  // How far shapes can travel (silence -> stay near center; loud -> fill screen)
+  float travelMax = mix(0.22, 1.05, mag);
+  // Extra distance punch on bass hits
+  travelMax *= (1.0 + 0.35*u_kick);
+
   float throwBoost = (0.25 + 0.75*u_energy) * (0.55 + 0.45*u_bass) + (0.25*u_kick);
   throwBoost *= 1.30;
-  // IMPORTANT: keep spawnRate constant (no audio dependency) so travel doesn't jitter.
-  float spawnRate = 0.75; // spawns/sec per slot (0.6..1.2 is a good range)
   for (int i = 0; i < SHAPES; i++) {
     float fi = float(i);
 
-    // Each slot has a stable phase offset so spawns are staggered.
-    float slotOff = hash12(vec2(fi + 91.7, 17.3)) * 8.0; // cycles offset
-    float phase   = u_time * spawnRate + slotOff;
-    float cyc     = floor(phase);   // "spawn id" (integer-ish)
-    float lf      = fract(phase);   // 0..1 within this spawn
-    float age     = lf / spawnRate; // seconds since spawn (fixed-speed travel)
+    // Slot staggering (keeps spawns distributed)
+    float slotOff = hash12(vec2(fi + 91.7, 17.3)) * 8.0;
+    float phase = u_spawn + slotOff;
+    float cyc = floor(phase);
+    float lf  = fract(phase); // 0..1 progress within current spawn for this slot
 
-    // Stable per-spawn randomness (seeded by spawn id)
+    // Fade window hides the wrap reset; also scales down hard on silence
+    float life = smoothstep(0.00, 0.10, lf) * (1.0 - smoothstep(0.82, 1.00, lf));
+
+    // Gradually enable more slots as audio magnitude rises (and on kick)
+    float slotRnd = hash12(vec2(fi + 13.9, 88.4));
+    float enabled = step(slotRnd, enableLevel);
+
+    // Stable per-SPAWN randomness (seeded from cycle id)
     float hA = hash12(vec2(fi + 1.3,  cyc +  7.1));
     float hB = hash12(vec2(fi + 4.7,  cyc + 19.9));
     float hC = hash12(vec2(fi + 9.2,  cyc +  3.3));
     float hD = hash12(vec2(fi + 2.6,  cyc + 11.8));
 
-    // Direction + speed are FIXED for the whole life of this spawned shape
-    float ang2  = 6.2831853 * hA;
-    vec2  dir   = vec2(cos(ang2), sin(ang2));
-    float speed = mix(0.55, 1.35, hB);   // units/sec in our centered space
-    float rad   = age * speed;
+    // Direction is stable for the whole spawn (no snapping)
+    float ang2 = 6.2831853 * hA;
+    vec2 dir = vec2(cos(ang2), sin(ang2));
 
-    // Fade-in/out over the spawn window to hide the reset (no snapping)
-    float life = smoothstep(0.00, 0.10, lf) * (1.0 - smoothstep(0.80, 1.00, lf));
+    // Smooth outward travel: lf advances faster when audio is louder (because u_spawn advances faster)
+    float rr = lf*lf*(3.0 - 2.0*lf);              // smoothstep-like easing
+    float rad = rr * travelMax;
+    vec2 pos = dir * rad;
 
-    // Optional slight curvature (seeded) so paths aren't perfectly straight
+    // Optional gentle curvature (seeded) so it feels "thrown" not perfectly straight
     float curve = (hC - 0.5) * 0.25;
-    vec2 pos = (rot2(curve * age) * (dir * rad));
+    pos = rot2(curve * rr) * pos;
 
     // Vary size and shape (reuse sdNgon)
     float size = (0.05 + 0.14*hD) * (0.70 + 0.65*u_bass);
     float sides = 3.0 + floor(hC * 4.0);       // 3..6
-    float spin  = mix(-2.6, 2.6, hA);          // rad/sec (seeded)
-    float rotS  = hB*6.2831853 + age * spin;   // rotation seeded at spawn
+    float rotS  = (rr * (1.2 + 2.0*hB)) + hB*6.2831853;
 
     // Distance field + glow/fill
     vec2 lp = rot2(rotS) * (p - pos);
@@ -524,7 +565,7 @@ void main(){
     // Color: per-shape hue offset + energy-driven value
     float hue = fract(baseHue + 0.18 + 0.85*hB + 0.08*sin(0.08*cyc + fi));
     vec3 sc  = hsv2rgb(vec3(hue, 0.85, 1.0));
-    add += sc * (glow*0.32 + fill*0.10) * throwBoost * life;
+    add += sc * (glow*0.32 + fill*0.10) * throwBoost * life * enabled;
   }
 
   // Sparkles (treble)

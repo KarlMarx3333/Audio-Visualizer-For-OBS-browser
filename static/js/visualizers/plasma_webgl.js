@@ -106,6 +106,7 @@ export class PlasmaWebGL {
     this._energy = 0;
     this._bass = 0;
     this._treble = 0;
+    this._specBuf = null;
   }
 
   onResize(w,h,dpr){
@@ -122,7 +123,15 @@ export class PlasmaWebGL {
 
   onFrame(frame){
     const gl = this.gl;
-    const spec = frame.spectrum;
+    const srcSpec = frame.spectrum;
+    let spec = srcSpec;
+    if(srcSpec){
+      if(!this._specBuf || this._specBuf.length !== srcSpec.length){
+        this._specBuf = new Float32Array(srcSpec.length);
+      }
+      this._specBuf.set(srcSpec);
+      spec = this._specBuf;
+    }
     const rms = (frame.rms && frame.rms[0]) ? frame.rms[0] : 0;
     const overlay = !!frame.overlay;
 

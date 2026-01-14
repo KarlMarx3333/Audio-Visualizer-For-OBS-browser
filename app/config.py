@@ -68,6 +68,8 @@ def load_config() -> AppConfig:
                     setattr(cfg, k, v)
         except Exception:
             pass
+    if cfg.visualizer_name == "cavern":
+        cfg.visualizer_name = "membrane_vortex"
     cfg.clamp()
     return cfg
 
