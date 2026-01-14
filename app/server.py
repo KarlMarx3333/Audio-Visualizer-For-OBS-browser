@@ -27,6 +27,7 @@ VISUALIZERS = [
     {"id": "feedback", "name": "Feedback Mirror (WebGL)", "renderer": "webgl"},
     {"id": "tunnel", "name": "Tunnel / Warp Speed (WebGL)", "renderer": "webgl"},
     {"id": "swarm", "name": "Particle Swarm / Explosions (WebGL2)", "renderer": "webgl"},
+    {"id": "cavern", "name": "Neon Crystal Cavern (WebGL2)", "renderer": "webgl"},
 ]
 
 

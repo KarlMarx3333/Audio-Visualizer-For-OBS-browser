@@ -7,6 +7,7 @@ import { PlasmaWebGL } from "/static/js/visualizers/plasma_webgl.js";
 import { FeedbackMirrorWebGL } from "/static/js/visualizers/feedback_webgl.js";
 import { TunnelWarpWebGL } from "/static/js/visualizers/tunnel_webgl.js";
 import { ParticleSwarmWebGL2 } from "/static/js/visualizers/particle_swarm_webgl2.js";
+import { NeonCrystalCavernWebGL2 } from "/static/js/visualizers/cavern_webgl2.js";
 
 
 class Registry {
@@ -26,6 +27,7 @@ class Registry {
     this.register(FeedbackMirrorWebGL);
     this.register(TunnelWarpWebGL);
     this.register(ParticleSwarmWebGL2);
+    this.register(NeonCrystalCavernWebGL2);
 
   }
   register(V){ this._map.set(V.id, V); }
