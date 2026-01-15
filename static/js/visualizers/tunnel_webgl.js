@@ -54,6 +54,7 @@ export class TunnelWarpWebGL {
       u_audio: gl.getUniformLocation(this._progA, "u_audio"),
       u_res: gl.getUniformLocation(this._progA, "u_res"),
       u_time: gl.getUniformLocation(this._progA, "u_time"),
+      u_dt: gl.getUniformLocation(this._progA, "u_dt"),
     };
 
     // Locations (Image)
@@ -62,6 +63,7 @@ export class TunnelWarpWebGL {
       u_buf: gl.getUniformLocation(this._progI, "u_buf"),
       u_res: gl.getUniformLocation(this._progI, "u_res"),
       u_time: gl.getUniformLocation(this._progI, "u_time"),
+      u_travel: gl.getUniformLocation(this._progI, "u_travel"),
       u_energy: gl.getUniformLocation(this._progI, "u_energy"),
       u_bass: gl.getUniformLocation(this._progI, "u_bass"),
       u_mid: gl.getUniformLocation(this._progI, "u_mid"),
@@ -111,6 +113,7 @@ export class TunnelWarpWebGL {
     this._bass = 0;
     this._mid = 0;
     this._treble = 0;
+    this._travel = 0;
     this._specBuf = null;
 
     this._failed = false;
@@ -190,6 +193,11 @@ export class TunnelWarpWebGL {
       this._mid    = a * this._mid    + (1 - a) * logNorm(midRaw,  140);
       this._treble = a * this._treble + (1 - a) * logNorm(trbRaw,  160);
 
+      const speed = 0.55 + 2.6 * this._bass + 0.6 * this._energy;
+      this._travel = Number.isFinite(this._travel) ? this._travel : 0;
+      this._travel += dt * speed;
+      if (this._travel > 1e6) this._travel -= 1e6;
+
       const t = ((now - this._t0) / 1000.0) % 600.0;
 
       // Update audio texture (spectrum -> row)
@@ -214,6 +222,7 @@ export class TunnelWarpWebGL {
 
       gl.uniform2f(this._locA.u_res, w, h);
       gl.uniform1f(this._locA.u_time, t);
+      gl.uniform1f(this._locA.u_dt, dt);
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -232,6 +241,7 @@ export class TunnelWarpWebGL {
 
       gl.uniform2f(this._locI.u_res, this.canvas.width, this.canvas.height);
       gl.uniform1f(this._locI.u_time, t);
+      gl.uniform1f(this._locI.u_travel, this._travel);
       gl.uniform1f(this._locI.u_energy, this._energy);
       gl.uniform1f(this._locI.u_bass, this._bass);
       gl.uniform1f(this._locI.u_mid, this._mid);
@@ -421,13 +431,16 @@ uniform sampler2D u_prev;
 uniform sampler2D u_audio;
 uniform vec2 u_res;
 uniform float u_time;
+uniform float u_dt;
 void main(){
   vec2 fragCoord = gl_FragCoord.xy;
   vec2 uv = fragCoord / u_res.xy;
   float topRow = step(fragCoord.y, 1.0);
   float m = texture2D(u_audio, vec2(uv.x, 0.5)).r;
   vec3 prev = texture2D(u_prev, uv).rgb;
-  vec3 col = mix(prev * 0.985, vec3(m), topRow);
+  float fade60 = 0.985;
+  float fade = pow(fade60, u_dt * 60.0);
+  vec3 col = mix(prev * fade, vec3(m), topRow);
   gl_FragColor = vec4(col, 1.0);
 }
 `;
@@ -439,6 +452,7 @@ varying vec2 v_uv;
 uniform sampler2D u_buf;
 uniform vec2  u_res;
 uniform float u_time;
+uniform float u_travel;
 uniform float u_energy;
 uniform float u_bass;
 uniform float u_mid;
@@ -471,8 +485,7 @@ void main(){
   float a = atan(p.y, p.x);
   float tau = 6.28318530718;
 
-  float speed = 0.55 + 2.6*u_bass + 0.6*u_energy;
-  float z = u_time * speed;
+  float z = u_travel;
 
   float inv = 1.0 / (r + 0.28);
   float depth = clamp(inv * 0.55, 0.0, 6.0);

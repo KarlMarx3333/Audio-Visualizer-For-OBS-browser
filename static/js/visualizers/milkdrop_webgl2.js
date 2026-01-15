@@ -62,9 +62,24 @@ export class MilkdropWarpReactorWebGL2 {
     this._prevBass = 0;
     this._kick = 0;
 
-    // GPU-driven spawn phase (used by shader for stable per-spawn randomness)
-    this._spawnPhase = 0;
-    this._spawnRate = 0;
+    // Spawned shapes (fixed speed per-shape)
+    this._shapeCount = 9;
+    this._shapePos = new Float32Array(this._shapeCount * 2);
+    this._shapeDir = new Float32Array(this._shapeCount * 2);
+    this._shapeSpeed = new Float32Array(this._shapeCount);
+    this._shapeSize = new Float32Array(this._shapeCount);
+    this._shapeSides = new Float32Array(this._shapeCount);
+    this._shapeRot = new Float32Array(this._shapeCount);
+    this._shapeSpin = new Float32Array(this._shapeCount);
+    this._shapeHue = new Float32Array(this._shapeCount);
+    this._shapeAge = new Float32Array(this._shapeCount);
+    this._shapeLife = new Float32Array(this._shapeCount);
+    this._shapeA = new Float32Array(this._shapeCount * 4);
+    this._shapeB = new Float32Array(this._shapeCount * 4);
+    this._shapeIndex = 0;
+    this._spawnAcc = 0;
+    this._rng = 0x12345678;
+    this._midPhase = 0;
 
     // Fullscreen quad
     this.vb = createFullscreenQuad(gl);
@@ -86,6 +101,9 @@ export class MilkdropWarpReactorWebGL2 {
     this.uEnergy = loc(this.progFB, "u_energy");
     this.uKick = loc(this.progFB, "u_kick");
     this.uSpawn = loc(this.progFB, "u_spawn");
+    this.uMidPhase = loc(this.progFB, "u_mid_phase");
+    this.uShapeA = loc(this.progFB, "u_shapeA[0]");
+    this.uShapeB = loc(this.progFB, "u_shapeB[0]");
 
     // Locations (present)
     this.aPosPR = gl.getAttribLocation(this.progPresent, "a_pos");
@@ -199,6 +217,139 @@ export class MilkdropWarpReactorWebGL2 {
     return Math.max(0, Math.min(1, y));
   }
 
+  _clamp01(x) {
+    if (x < 0) return 0;
+    if (x > 1) return 1;
+    return x;
+  }
+
+  _lerp(a, b, t) {
+    return a + (b - a) * t;
+  }
+
+  _smoothstep(edge0, edge1, x) {
+    const t = this._clamp01((x - edge0) / (edge1 - edge0));
+    return t * t * (3 - 2 * t);
+  }
+
+  _rand() {
+    this._rng = (this._rng * 1664525 + 1013904223) >>> 0;
+    return this._rng / 4294967296;
+  }
+
+  _spawnShape(vol, b, m, h) {
+    const i = this._shapeIndex;
+    this._shapeIndex = (this._shapeIndex + 1) % this._shapeCount;
+
+    const ang = this._rand() * Math.PI * 2;
+    const dirx = Math.cos(ang);
+    const diry = Math.sin(ang);
+
+    const speed = this._lerp(1.1, 2.8, vol) * (0.9 + 0.2 * this._rand());
+
+    const wb = b * 1.2;
+    const wm = m * 1.0;
+    const wh = h * 0.8;
+    const sum = wb + wm + wh;
+    let sizeMin = 0.06;
+    let sizeMax = 0.14;
+    if (sum >= 0.05) {
+      const pick = this._rand() * sum;
+      if (pick < wb) {
+        sizeMin = 0.11;
+        sizeMax = 0.22;
+      } else if (pick < wb + wm) {
+        sizeMin = 0.06;
+        sizeMax = 0.14;
+      } else {
+        sizeMin = 0.02;
+        sizeMax = 0.06;
+      }
+    }
+    const size = this._lerp(sizeMin, sizeMax, this._rand());
+
+    const sides = 3 + Math.floor(this._rand() * 4);
+    const hue = this._rand();
+    const rot = this._rand() * Math.PI * 2;
+    const spin = (this._rand() * 2 - 1) * 2.6;
+    const life = 1.0;
+
+    this._shapePos[i * 2] = 0;
+    this._shapePos[i * 2 + 1] = 0;
+    this._shapeDir[i * 2] = dirx;
+    this._shapeDir[i * 2 + 1] = diry;
+    this._shapeSpeed[i] = speed;
+    this._shapeSize[i] = size;
+    this._shapeSides[i] = sides;
+    this._shapeRot[i] = rot;
+    this._shapeSpin[i] = spin;
+    this._shapeHue[i] = hue;
+    this._shapeAge[i] = 0;
+    this._shapeLife[i] = life;
+  }
+
+  _updateShapes(dt, vol, b, m, h) {
+    const baseRate = this._lerp(0.15, 2.2, vol);
+    const spawnRate = baseRate + 2.0 * b + 1.0 * m + 1.6 * this._kick;
+    this._spawnAcc += dt * spawnRate;
+
+    let spawned = 0;
+    while (this._spawnAcc >= 1.0 && spawned < this._shapeCount) {
+      this._spawnAcc -= 1.0;
+      this._spawnShape(vol, b, m, h);
+      spawned++;
+    }
+
+    for (let i = 0; i < this._shapeCount; i++) {
+      const ai = i * 4;
+      const bi = ai;
+
+      if (this._shapeLife[i] <= 0) {
+        this._shapeA[ai] = 0;
+        this._shapeA[ai + 1] = 0;
+        this._shapeA[ai + 2] = 0;
+        this._shapeA[ai + 3] = 0;
+        this._shapeB[bi] = 0;
+        this._shapeB[bi + 1] = 0;
+        this._shapeB[bi + 2] = 0;
+        this._shapeB[bi + 3] = 0;
+        continue;
+      }
+
+      this._shapeAge[i] += dt;
+
+      const dx = this._shapeDir[i * 2] * this._shapeSpeed[i] * dt;
+      const dy = this._shapeDir[i * 2 + 1] * this._shapeSpeed[i] * dt;
+      const px = this._shapePos[i * 2] + dx;
+      const py = this._shapePos[i * 2 + 1] + dy;
+      this._shapePos[i * 2] = px;
+      this._shapePos[i * 2 + 1] = py;
+      this._shapeRot[i] += this._shapeSpin[i] * dt;
+
+      if (px * px + py * py > 2.25) {
+        this._shapeLife[i] = 0;
+        this._shapeA[ai + 2] = 0;
+        this._shapeB[bi + 2] = 0;
+        continue;
+      }
+
+      const fadeIn = this._smoothstep(0.0, 0.20, this._shapeAge[i]);
+      const r = Math.sqrt(px * px + py * py);
+      const fadeOut = 1.0 - this._smoothstep(1.05, 1.25, r);
+      const life = fadeIn * fadeOut;
+
+      this._shapeA[ai] = px;
+      this._shapeA[ai + 1] = py;
+      this._shapeA[ai + 2] = this._shapeSize[i];
+      this._shapeA[ai + 3] = this._shapeSides[i];
+
+      this._shapeB[bi] = this._shapeRot[i];
+      this._shapeB[bi + 1] = this._shapeHue[i];
+      this._shapeB[bi + 2] = life;
+      this._shapeB[bi + 3] = 1.0;
+    }
+  }
+
   onFrame(frame) {
     const gl = this.gl;
     if (this._destroyed || !gl) return;
@@ -244,20 +395,21 @@ export class MilkdropWarpReactorWebGL2 {
     this._treble = a * this._treble + (1 - a) * treRaw;
     this._energy = a * this._energy + (1 - a) * energyRaw;
 
+    this._midPhase = Number.isFinite(this._midPhase) ? this._midPhase : 0;
+    this._midPhase += dt * this._mid;
+    if (this._midPhase > 1e6) this._midPhase -= 1e6;
+
     const db = Math.max(0, this._bass - this._prevBass);
     this._prevBass = this._bass;
     const kickDecayRate = 8.0;
     this._kick *= Math.exp(-dt * kickDecayRate);
     this._kick = Math.max(this._kick, Math.min(1, db * 7.0));
 
-    // Advance shader spawn phase.
-    // Silence -> very slow (almost no new shapes); loud/kick -> faster spawns.
-    const mag = Math.max(0, Math.min(1, 0.55 * this._energy + 0.45 * this._bass));
-    const targetSpawnRate = (0.08 + 1.65 * mag) * (1.0 + 0.75 * this._kick);
-    const srA = Math.exp(-dt * 6.0);
-    this._spawnRate = srA * this._spawnRate + (1 - srA) * targetSpawnRate;
-    this._spawnPhase = Number.isFinite(this._spawnPhase) ? this._spawnPhase : 0;
-    this._spawnPhase = (this._spawnPhase + dt * this._spawnRate) % 8192.0;
+    const vol = this._clamp01(this._energy);
+    const b = this._clamp01(this._bass);
+    const m = this._clamp01(this._mid);
+    const h = this._clamp01(this._treble);
+    this._updateShapes(dt, vol, b, m, h);
 
     const t = ((now - this._t0) * 0.001) % 600.0;
 
@@ -283,7 +435,9 @@ export class MilkdropWarpReactorWebGL2 {
     gl.uniform1f(this.uTreble, this._treble);
     gl.uniform1f(this.uEnergy, this._energy);
     gl.uniform1f(this.uKick, this._kick);
-    if (this.uSpawn) gl.uniform1f(this.uSpawn, this._spawnPhase);
+    if (this.uMidPhase !== null) gl.uniform1f(this.uMidPhase, this._midPhase);
+    if (this.uShapeA !== null) gl.uniform4fv(this.uShapeA, this._shapeA);
+    if (this.uShapeB !== null) gl.uniform4fv(this.uShapeB, this._shapeB);
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -366,7 +520,13 @@ uniform float u_mid;
 uniform float u_treble;
 uniform float u_energy;
 uniform float u_kick;
-uniform float u_spawn;
+uniform float u_mid_phase;
+const int SHAPES = 9;
+uniform vec4 u_shapeA[SHAPES];
+uniform vec4 u_shapeB[SHAPES];
+const int SHAPES = 9;
+uniform vec4 u_shapeA[SHAPES];
+uniform vec4 u_shapeB[SHAPES];
 
 float hash12(vec2 p){
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -410,10 +570,8 @@ void main(){
 
   // --- feedback warp (Milkdrop-ish) ---
   float swirl = 0.35 + u_mid*0.95 + u_energy*0.35;
-  float spin  = 0.22 + u_mid*0.85;
-
   float wob  = 0.45*sin(u_time*0.30 + r*2.70) + 0.25*cos(u_time*0.21 - r*4.10);
-  float a = ang + swirl*wob + u_time*spin;
+  float a = ang + swirl*wob + u_time*0.22 + u_mid_phase*0.85;
 
   // zoom/pump driven by bass + kick
   float zoom = 0.985 - u_bass*0.018 + u_kick*0.028;
@@ -454,6 +612,8 @@ void main(){
 
   // subtle channel drift (color cycling vibe)
   prev *= vec3(1.005, 0.998, 1.002);
+  float pm = max(prev.r, max(prev.g, prev.b));
+  prev *= 1.0 / (1.0 + pm * 0.6);
 
   // --- new content layer ---
   float baseHue = fract(0.58 + 0.12*sin(u_time*0.06) + 0.18*u_mid + 0.10*u_treble);
@@ -463,9 +623,9 @@ void main(){
   float w1 = (55.0 + 90.0*u_treble);
   float w2 = (40.0 + 75.0*u_treble);
 
-  float yA = 0.08*sin(p.x*2.2 + u_time*(1.15 + 1.20*u_mid)) + 0.06*sin(p.x*4.6 - u_time*0.90);
-  float yB = 0.09*sin(p.x*1.5 - u_time*(0.95 + 1.10*u_mid)) + 0.05*sin(p.x*5.2 + u_time*1.35);
-  float yC = 0.06*sin(p.x*3.1 + u_time*(1.40 + 0.90*u_mid)) + 0.04*sin(p.x*6.1 - u_time*0.70);
+  float yA = 0.08*sin(p.x*2.2 + u_time*1.15 + u_mid_phase*1.20) + 0.06*sin(p.x*4.6 - u_time*0.90);
+  float yB = 0.09*sin(p.x*1.5 - u_time*0.95 - u_mid_phase*1.10) + 0.05*sin(p.x*5.2 + u_time*1.35);
+  float yC = 0.06*sin(p.x*3.1 + u_time*1.40 + u_mid_phase*0.90) + 0.04*sin(p.x*6.1 - u_time*0.70);
 
   float lineA = ribbon(p, yA*amp, w1);
   float lineB = ribbon(p, yB*amp, w2);
@@ -475,10 +635,12 @@ void main(){
   vec3 colB = hsv2rgb(vec3(baseHue + 0.33, 0.85, 1.00));
   vec3 colC = hsv2rgb(vec3(baseHue + 0.66, 0.80, 1.00));
 
+  float lineGain = smoothstep(0.06, 0.28, u_energy);
+
   vec3 add = vec3(0.0);
-  add += colA * lineA * (0.55 + 0.75*u_energy);
-  add += colB * lineB * (0.45 + 0.70*u_energy);
-  add += colC * lineC * (0.40 + 0.65*u_energy);
+  add += colA * lineA * (0.55 * lineGain);
+  add += colB * lineB * (0.45 * lineGain);
+  add += colC * lineC * (0.40 * lineGain);
 
   // Radial pulse rings (bass/kick)
   float ringR = 0.22 + 0.08*sin(u_time*0.55) + 0.12*u_bass;
@@ -487,7 +649,7 @@ void main(){
 
   // --- rotating polygon "shapes" (Milkdrop-ish) ---
   // One hex "reactor" + one triangle "blade". Additive glow so it feels like a preset layer.
-  float rotA = u_time * (0.35 + 0.95*u_mid);
+  float rotA = u_time*0.35 + u_mid_phase*0.95;
   vec2 sp = p;
 
   vec2 s1p = rot2(rotA) * (sp * (1.10 + 0.25*u_energy));
@@ -503,70 +665,26 @@ void main(){
   float f2 = smoothstep(0.018, 0.0, d2);
   add += hsv2rgb(vec3(baseHue + 0.45, 0.85, 1.00)) * (s2*0.18 + f2*0.04) * (0.40 + 0.70*u_energy);
 
-  // --- "thrown" shapes from center (varied speed/size/sides/color) ---
-  // Pure GPU procedural emitters; trails come for free from feedback.
-  // Keep count modest for perf; increase to 12 if you want more density.
-  const int SHAPES = 9;
-  float mag = clamp(0.55*u_energy + 0.45*u_bass, 0.0, 1.0);
-  // How many slots are allowed to show (silence -> almost none; loud -> most/all)
-  float enableLevel = clamp(0.08 + 0.85*mag + 0.55*u_kick, 0.0, 1.0);
-  // How far shapes can travel (silence -> stay near center; loud -> fill screen)
-  float travelMax = mix(0.22, 1.05, mag);
-  // Extra distance punch on bass hits
-  travelMax *= (1.0 + 0.35*u_kick);
-
-  float throwBoost = (0.25 + 0.75*u_energy) * (0.55 + 0.45*u_bass) + (0.25*u_kick);
-  throwBoost *= 1.30;
+  // --- spawned shapes (fixed speed per-shape, parameters set on spawn) ---
+  float throwBoost = 0.90;
   for (int i = 0; i < SHAPES; i++) {
-    float fi = float(i);
+    vec4 sa = u_shapeA[i];
+    vec4 sb = u_shapeB[i];
+    float life = sb.z;
+    if (life <= 0.0) continue;
 
-    // Slot staggering (keeps spawns distributed)
-    float slotOff = hash12(vec2(fi + 91.7, 17.3)) * 8.0;
-    float phase = u_spawn + slotOff;
-    float cyc = floor(phase);
-    float lf  = fract(phase); // 0..1 progress within current spawn for this slot
+    vec2 pos = sa.xy;
+    float size = sa.z;
+    float sides = sa.w;
+    float rotS = sb.x;
+    float hue = fract(baseHue + sb.y);
 
-    // Fade window hides the wrap reset; also scales down hard on silence
-    float life = smoothstep(0.00, 0.10, lf) * (1.0 - smoothstep(0.82, 1.00, lf));
-
-    // Gradually enable more slots as audio magnitude rises (and on kick)
-    float slotRnd = hash12(vec2(fi + 13.9, 88.4));
-    float enabled = step(slotRnd, enableLevel);
-
-    // Stable per-SPAWN randomness (seeded from cycle id)
-    float hA = hash12(vec2(fi + 1.3,  cyc +  7.1));
-    float hB = hash12(vec2(fi + 4.7,  cyc + 19.9));
-    float hC = hash12(vec2(fi + 9.2,  cyc +  3.3));
-    float hD = hash12(vec2(fi + 2.6,  cyc + 11.8));
-
-    // Direction is stable for the whole spawn (no snapping)
-    float ang2 = 6.2831853 * hA;
-    vec2 dir = vec2(cos(ang2), sin(ang2));
-
-    // Smooth outward travel: lf advances faster when audio is louder (because u_spawn advances faster)
-    float rr = lf*lf*(3.0 - 2.0*lf);              // smoothstep-like easing
-    float rad = rr * travelMax;
-    vec2 pos = dir * rad;
-
-    // Optional gentle curvature (seeded) so it feels "thrown" not perfectly straight
-    float curve = (hC - 0.5) * 0.25;
-    pos = rot2(curve * rr) * pos;
-
-    // Vary size and shape (reuse sdNgon)
-    float size = (0.05 + 0.14*hD) * (0.70 + 0.65*u_bass);
-    float sides = 3.0 + floor(hC * 4.0);       // 3..6
-    float rotS  = (rr * (1.2 + 2.0*hB)) + hB*6.2831853;
-
-    // Distance field + glow/fill
     vec2 lp = rot2(rotS) * (p - pos);
     float dS = sdNgon(lp, sides, size);
     float glow = exp(-abs(dS) * (20.0 + 40.0*u_energy));
     float fill = smoothstep(0.020, 0.0, dS);
-
-    // Color: per-shape hue offset + energy-driven value
-    float hue = fract(baseHue + 0.18 + 0.85*hB + 0.08*sin(0.08*cyc + fi));
     vec3 sc  = hsv2rgb(vec3(hue, 0.85, 1.0));
-    add += sc * (glow*0.32 + fill*0.10) * throwBoost * life * enabled;
+    add += sc * (glow*0.32 + fill*0.10) * throwBoost * life;
   }
 
   // Sparkles (treble)
@@ -577,6 +695,10 @@ void main(){
 
   // Combine
   vec3 col = prev + add;
+
+  // Gentle limiter to prevent slow buildup over time.
+  float m = max(col.r, max(col.g, col.b));
+  col *= 1.0 / (1.0 + m * 0.35);
 
   // Cheap "bloom-ish" curve
   col += col * col * (0.30 + 0.35*u_energy);
@@ -608,6 +730,7 @@ uniform float u_mid;
 uniform float u_treble;
 uniform float u_energy;
 uniform float u_kick;
+uniform float u_mid_phase;
 
 float hash12(vec2 p){
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -648,10 +771,8 @@ void main(){
   float ang = atan(p.y, p.x);
 
   float swirl = 0.35 + u_mid*0.95 + u_energy*0.35;
-  float spin  = 0.22 + u_mid*0.85;
-
   float wob  = 0.45*sin(u_time*0.30 + r*2.70) + 0.25*cos(u_time*0.21 - r*4.10);
-  float a = ang + swirl*wob + u_time*spin;
+  float a = ang + swirl*wob + u_time*0.22 + u_mid_phase*0.85;
 
   float zoom = 0.985 - u_bass*0.018 + u_kick*0.028;
   vec2 q = vec2(cos(a), sin(a)) * r * zoom;
@@ -686,6 +807,8 @@ void main(){
   float fade = pow(fade60, u_dt * 60.0);
   prev *= fade;
   prev *= vec3(1.005, 0.998, 1.002);
+  float pm = max(prev.r, max(prev.g, prev.b));
+  prev *= 1.0 / (1.0 + pm * 0.6);
 
   float baseHue = fract(0.58 + 0.12*sin(u_time*0.06) + 0.18*u_mid + 0.10*u_treble);
 
@@ -693,9 +816,9 @@ void main(){
   float w1 = (55.0 + 90.0*u_treble);
   float w2 = (40.0 + 75.0*u_treble);
 
-  float yA = 0.08*sin(p.x*2.2 + u_time*(1.15 + 1.20*u_mid)) + 0.06*sin(p.x*4.6 - u_time*0.90);
-  float yB = 0.09*sin(p.x*1.5 - u_time*(0.95 + 1.10*u_mid)) + 0.05*sin(p.x*5.2 + u_time*1.35);
-  float yC = 0.06*sin(p.x*3.1 + u_time*(1.40 + 0.90*u_mid)) + 0.04*sin(p.x*6.1 - u_time*0.70);
+  float yA = 0.08*sin(p.x*2.2 + u_time*1.15 + u_mid_phase*1.20) + 0.06*sin(p.x*4.6 - u_time*0.90);
+  float yB = 0.09*sin(p.x*1.5 - u_time*0.95 - u_mid_phase*1.10) + 0.05*sin(p.x*5.2 + u_time*1.35);
+  float yC = 0.06*sin(p.x*3.1 + u_time*1.40 + u_mid_phase*0.90) + 0.04*sin(p.x*6.1 - u_time*0.70);
 
   float lineA = ribbon(p, yA*amp, w1);
   float lineB = ribbon(p, yB*amp, w2);
@@ -705,17 +828,19 @@ void main(){
   vec3 colB = hsv2rgb(vec3(baseHue + 0.33, 0.85, 1.00));
   vec3 colC = hsv2rgb(vec3(baseHue + 0.66, 0.80, 1.00));
 
+  float lineGain = smoothstep(0.06, 0.28, u_energy);
+
   vec3 add = vec3(0.0);
-  add += colA * lineA * (0.55 + 0.75*u_energy);
-  add += colB * lineB * (0.45 + 0.70*u_energy);
-  add += colC * lineC * (0.40 + 0.65*u_energy);
+  add += colA * lineA * (0.55 * lineGain);
+  add += colB * lineB * (0.45 * lineGain);
+  add += colC * lineC * (0.40 * lineGain);
 
   float ringR = 0.22 + 0.08*sin(u_time*0.55) + 0.12*u_bass;
   float ring = exp(-abs(r - ringR) * (28.0 + 38.0*u_kick));
   add += hsv2rgb(vec3(baseHue + 0.12, 0.70, 1.00)) * ring * (0.25 + 0.85*u_kick);
 
   // rotating polygon shapes
-  float rotA = u_time * (0.35 + 0.95*u_mid);
+  float rotA = u_time*0.35 + u_mid_phase*0.95;
   vec2 sp = p;
 
   vec2 s1p = rot2(rotA) * (sp * (1.10 + 0.25*u_energy));
@@ -731,46 +856,24 @@ void main(){
   float f2 = smoothstep(0.018, 0.0, d2);
   add += hsv2rgb(vec3(baseHue + 0.45, 0.85, 1.00)) * (s2*0.18 + f2*0.04) * (0.40 + 0.70*u_energy);
 
-  // thrown shapes from center (WebGL1 path)
-  const int SHAPES = 9;
-  float throwBoost = (0.25 + 0.75*u_energy) * (0.55 + 0.45*u_bass) + (0.25*u_kick);
-  throwBoost *= 1.30;
-  float spawnRate = 0.75;
+  // spawned shapes (fixed speed per-shape)
+  float throwBoost = 0.90;
   for (int i = 0; i < SHAPES; i++) {
-    float fi = float(i);
+    vec4 sa = u_shapeA[i];
+    vec4 sb = u_shapeB[i];
+    float life = sb.z;
+    if (life <= 0.0) continue;
 
-    float slotOff = hash12(vec2(fi + 91.7, 17.3)) * 8.0;
-    float phase   = u_time * spawnRate + slotOff;
-    float cyc     = floor(phase);
-    float lf      = fract(phase);
-    float age     = lf / spawnRate;
-
-    float hA = hash12(vec2(fi + 1.3,  cyc +  7.1));
-    float hB = hash12(vec2(fi + 4.7,  cyc + 19.9));
-    float hC = hash12(vec2(fi + 9.2,  cyc +  3.3));
-    float hD = hash12(vec2(fi + 2.6,  cyc + 11.8));
-
-    float ang2  = 6.2831853 * hA;
-    vec2  dir   = vec2(cos(ang2), sin(ang2));
-    float speed = mix(0.55, 1.35, hB);
-    float rad   = age * speed;
-
-    float life = smoothstep(0.00, 0.10, lf) * (1.0 - smoothstep(0.80, 1.00, lf));
-
-    float curve = (hC - 0.5) * 0.25;
-    vec2 pos = (rot2(curve * age) * (dir * rad));
-
-    float size = (0.05 + 0.14*hD) * (0.70 + 0.65*u_bass);
-    float sides = 3.0 + floor(hC * 4.0);
-    float spin  = mix(-2.6, 2.6, hA);
-    float rotS  = hB*6.2831853 + age * spin;
+    vec2 pos = sa.xy;
+    float size = sa.z;
+    float sides = sa.w;
+    float rotS = sb.x;
+    float hue = fract(baseHue + sb.y);
 
     vec2 lp = rot2(rotS) * (p - pos);
     float dS = sdNgon(lp, sides, size);
     float glow = exp(-abs(dS) * (20.0 + 40.0*u_energy));
     float fill = smoothstep(0.020, 0.0, dS);
-
-    float hue = fract(baseHue + 0.18 + 0.85*hB + 0.08*sin(0.08*cyc + fi));
     vec3 sc  = hsv2rgb(vec3(hue, 0.85, 1.0));
     add += sc * (glow*0.32 + fill*0.10) * throwBoost * life;
   }
@@ -781,6 +884,8 @@ void main(){
   add += vec3(1.0) * sparkle * (0.08 + 0.35*u_treble) * (0.5 + 0.6*u_energy);
 
   vec3 col = prev + add;
+  float m = max(col.r, max(col.g, col.b));
+  col *= 1.0 / (1.0 + m * 0.35);
   col += col * col * (0.30 + 0.35*u_energy);
 
   float vig = smoothstep(1.25, 0.20, r);
