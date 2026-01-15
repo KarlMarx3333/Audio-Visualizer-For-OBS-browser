@@ -191,8 +191,15 @@ export class NeonMembraneVortexWebGL2 {
     const e0 = this._bandHz(spec, sr, fftSize, 45, 12000) * gain;
     const energyRaw = this._shape(e0 * 1.9);
 
+    const now = performance.now();
+    let dt = (now - this._lastNow) * 0.001;
+    this._lastNow = now;
+    if (!Number.isFinite(dt) || dt <= 0) dt = 1.0 / 60.0;
+    dt = Math.min(0.05, Math.max(0.0, dt));
+
     // Smooth (EMA)
-    const a = 0.90;
+    const smoothRate = 6.6;
+    const a = Math.exp(-dt * smoothRate);
     this._bass = a * this._bass + (1 - a) * bassRaw;
     this._mid = a * this._mid + (1 - a) * midRaw;
     this._treble = a * this._treble + (1 - a) * treRaw;
@@ -201,19 +208,17 @@ export class NeonMembraneVortexWebGL2 {
     // Kick transient: fast attack, slow decay
     const db = Math.max(0, this._bass - this._prevBass);
     this._prevBass = this._bass;
-    this._kick = Math.max(this._kick * 0.92, Math.min(1, db * 7.5));
-
-    const now = performance.now();
-    let dt = (now - this._lastNow) * 0.001;
-    this._lastNow = now;
-    dt = Math.min(0.05, Math.max(0.0, dt));
+    const kickDecayRate = 5.2;
+    this._kick *= Math.exp(-dt * kickDecayRate);
+    this._kick = Math.max(this._kick, Math.min(1, db * 7.5));
+    if (!Number.isFinite(this._kick)) this._kick = 0;
 
     const speed01 = Math.max(0, Math.min(1, this._bass * 1.15 + this._energy * 0.35 + this._kick * 0.4));
     const speed = 0.55 + (1.55 - 0.55) * speed01;
-    this._travel += dt * speed * 2.05;
-    if (this._travel > 100000.0) this._travel -= 100000.0;
+    this._travel = Number.isFinite(this._travel) ? this._travel : 0;
+    this._travel = (this._travel + dt * speed * 2.05) % 100000.0;
 
-    const t = (now - this._t0) * 0.001;
+    const t = ((now - this._t0) * 0.001) % 600.0;
 
     gl.useProgram(this.program);
 

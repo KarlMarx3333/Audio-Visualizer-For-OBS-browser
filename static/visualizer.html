@@ -302,6 +302,8 @@ let lastSpectrum = null;
 let lastWave = null;
 let lastWaveLR = null;
 
+let __lastAnimNow = performance.now();
+
 function smoothArray(prev, cur, alpha){
   if(!prev || prev.length !== cur.length){
     return cur.slice ? cur.slice() : new Float32Array(cur);
@@ -354,7 +356,13 @@ function animate(){
   if(!viz || !latestFrame) return;
 
   const gain = Number(gainEl.value);
-  const alpha = Number(vsmoothEl.value);
+  const a60 = Number(vsmoothEl.value);
+  const __now = performance.now();
+  let __dt = (__now - __lastAnimNow) / 1000;
+  __lastAnimNow = __now;
+  if(!Number.isFinite(__dt) || __dt <= 0) __dt = 1/60;
+  __dt = Math.min(0.1, Math.max(0.0, __dt));
+  const alpha = Math.pow(a60, __dt * 60.0);
 
   const spectrum = latestFrame.spectrum;
   const waveLR = latestFrame.timeDomain;

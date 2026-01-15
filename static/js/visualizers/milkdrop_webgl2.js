@@ -256,9 +256,10 @@ export class MilkdropWarpReactorWebGL2 {
     const targetSpawnRate = (0.08 + 1.65 * mag) * (1.0 + 0.75 * this._kick);
     const srA = Math.exp(-dt * 6.0);
     this._spawnRate = srA * this._spawnRate + (1 - srA) * targetSpawnRate;
-    this._spawnPhase += dt * this._spawnRate;
+    this._spawnPhase = Number.isFinite(this._spawnPhase) ? this._spawnPhase : 0;
+    this._spawnPhase = (this._spawnPhase + dt * this._spawnRate) % 8192.0;
 
-    const t = (now - this._t0) * 0.001;
+    const t = ((now - this._t0) * 0.001) % 600.0;
 
     // --- PASS 1: feedback warp into writeFB ---
     gl.bindFramebuffer(gl.FRAMEBUFFER, this._writeFB);
