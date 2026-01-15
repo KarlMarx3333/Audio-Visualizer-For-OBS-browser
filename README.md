@@ -30,8 +30,17 @@ Interactive preview:
 
 Direct, fixed visualizer links (no auto-switch):
 - `http://127.0.0.1:8787/v/spectrum?embed=1`
+- `http://127.0.0.1:8787/v/oscilloscope?embed=1`
+- `http://127.0.0.1:8787/v/spectrogram?embed=1`
+- `http://127.0.0.1:8787/v/vectorscope?embed=1`
+- `http://127.0.0.1:8787/v/chroma?embed=1`
 - `http://127.0.0.1:8787/v/plasma?embed=1`
+- `http://127.0.0.1:8787/v/feedback?embed=1`
+- `http://127.0.0.1:8787/v/tunnel?embed=1`
 - `http://127.0.0.1:8787/v/swarm?embed=1`
+- `http://127.0.0.1:8787/v/fractal_torus?embed=1`
+- `http://127.0.0.1:8787/v/membrane_vortex?embed=1`
+- `http://127.0.0.1:8787/v/milkdrop?embed=1`
 
 ## Included visualizers Demos
 
@@ -59,8 +68,16 @@ Direct, fixed visualizer links (no auto-switch):
 ### Oscilloscope
 ![Oscilloscope](Demo/oscilloscope_demo.png)
 
-### Spectrum 
+### Spectrum
 ![Spectrum](Demo/spectrum_demo.png)
+
+### Additional visualizers (no demo images yet)
+- Fractal Torus Tunnel (WebGL)
+- Neon Membrane Vortex (WebGL2)
+- Milkdrop-ish Warp Reactor (WebGL2)
+
+## Shader credits / attributions
+- Fractal Torus Tunnel (WebGL): adapted from Shadertoy shader by bal-khan (MdBczW) - https://www.shadertoy.com/view/MdBczW
 
 
 ## Add a new visualizer

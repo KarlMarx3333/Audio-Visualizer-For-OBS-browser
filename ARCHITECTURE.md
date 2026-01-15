@@ -40,7 +40,11 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 │       │   ├── plasma_webgl.js
 │       │   ├── feedback_webgl.js
 │       │   ├── tunnel_webgl.js
-│       │   └── particle_swarm_webgl2.js
+│       │   ├── particle_swarm_webgl2.js
+│       │   ├── fractal_torus_webgl.js
+│       │   ├── membrane_vortex_webgl2.js
+│       │   ├── milkdrop_webgl2.js
+│       │   └── cavern_webgl2.js
 │       └── webgl/util.js
 ├── Demo/
 │   ├── particle_swarm_demo.png
@@ -69,15 +73,27 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 - **State store** Purpose: shared, thread-safe snapshot of app status and metrics; Key files: `app/state.py`; Public interfaces / classes: `StateStore`, `AppState`, `Metrics`; Depends on: `threading`, `dataclasses`; Used by: `main()` monitor thread, `TrayApp`, `create_app`.
 - **HTTP/WebSocket server** Purpose: serve UI assets and stream analysis frames; Key files: `app/server.py`; Public interfaces / classes: `create_app`, `ServerThread`, `VISUALIZERS`; Depends on: `FastAPI`, `uvicorn`, `StateStore`, `Analyzer`, `AudioEngine`; Used by: `app/main.py`, browser UI in `static/`. Provides `/render` (stable OBS URL) and `/v/{name}` (fixed visualizer links).
 - **Tray UI** Purpose: native tray icon and menus for device/visualizer selection plus the Audio Tuning window (gain + visual smoothing); Key files: `app/tray.py`; Public interfaces / classes: `TrayApp`; Depends on: `pystray`, `PIL`, `StateStore`, `AudioEngine`, `VISUALIZERS`, optional `tkinter`; Used by: `app/main.py`.
-- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`, `static/js/webgl/util.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `Spectrum2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source. `static/visualizer.html` manages embed mode (transparent overlay), canvas sizing (~80% of available area), renderer switching (2D vs WebGL) by replacing the canvas when needed, reads gain/visual smoothing from `/api/state`, and follows the server-selected visualizer when loaded via `/render`.
+- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`, `static/js/webgl/util.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `Spectrum2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source. `static/visualizer.html` manages embed mode (transparent overlay), canvas sizing (~80% of available area), and visualizer switching (it replaces the canvas when switching renderer types or between WebGL visualizers to avoid context conflicts). It pulls `gain` and `visual_smoothing` from `/api/state`, applies client-side smoothing, builds the per-frame payload, and follows the server-selected visualizer when loaded via `/render`. In debug mode (`?debug=1`), it checks for visualizers mutating shared audio buffers.
+
+## Visualizer contract (client-side)
+- Visualizers are ES modules in `static/js/visualizers/` that export a class with `static id`, `static name`, and `static renderer` (`"2d"` or `"webgl"`), plus `constructor(canvas)` and `onFrame(frame)`. Optional lifecycle hooks: `onResize(width, height, dpr)` and `destroy()`.
+- `static/js/visualizers/registry.js` registers visualizer classes and provides aliases for legacy IDs (currently `"cavern"` -> `"membrane_vortex"`). `createVisualizer()` falls back to `"spectrum"` if an ID is unknown.
+- `static/visualizer.html` owns the render loop and calls `viz.onFrame(frame)` each animation frame; visualizers should treat this as their update tick (no separate RAF loop needed).
+- WebGL visualizers manage their own GL resources (programs, textures, FBOs). Some use a multipass feedback pattern (BufferA + Image) with ping-pong targets, e.g. `static/js/visualizers/fractal_torus_webgl.js` and `static/js/visualizers/milkdrop_webgl2.js`.
+- The `frame` payload passed to visualizers includes:
+  - `frameId`, `ts`, `channels`, `rms`, `peak`, `corr`
+  - `spectrum` (smoothed), `wave` (mono, smoothed), `waveLR` (stereo, smoothed or `null`)
+  - `gain`, `samplerate`, `fftSize`, `overlay` (true when `?embed=1`)
+- The smoothed arrays are reused; visualizers must treat `spectrum`, `wave`, and `waveLR` as read-only. Debug mode (`?debug=1`) detects mutations.
 
 ## Data flow
 Primary happy path: audio input is captured, analyzed, and streamed to the browser.
 ```
 Mic -> AudioEngine(InputStream callback) -> RingBuffer
      -> Analyzer(thread) -> StateStore(metrics)
-     -> FastAPI /ws/audio -> ws_client.js -> Visualizer.onFrame()
+     -> FastAPI /ws/audio (AVF1 binary) -> ws_client.js -> visualizer.html -> Visualizer.onFrame()
 ```
+`static/visualizer.html` applies visual smoothing (EMA) using `visual_smoothing` from `/api/state` before building the `frame` object for visualizers.
 User configuration updates follow two paths: tray menu actions call `AudioEngine.configure()` and `save_config()` in `app/tray.py`, and the web UI posts to `/api/device` or `/api/options` in `app/server.py`, which update config/state and restart the audio engine when needed. Gain and visual smoothing are tray-only controls, exposed via `/api/state` and mirrored by `static/visualizer.html`.
 Visualizer selection updates from the tray or `/api/visualizer` update `StateStore`, and `/render` clients poll `/api/state` to swap visualizers without changing URL.
 
