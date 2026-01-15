@@ -5,6 +5,8 @@
 
 import { createProgram, createFullscreenQuad } from "/static/js/webgl/util.js";
 
+const TWO_PI = Math.PI * 2;
+
 export class MilkdropWarpReactorWebGL2 {
   static id = "milkdrop";
   static name = "Milkdrop-ish Warp Reactor (WebGL2)";
@@ -80,6 +82,7 @@ export class MilkdropWarpReactorWebGL2 {
     this._spawnAcc = 0;
     this._rng = 0x12345678;
     this._midPhase = 0;
+    this._rayPhase = 0;
 
     // Fullscreen quad
     this.vb = createFullscreenQuad(gl);
@@ -102,6 +105,7 @@ export class MilkdropWarpReactorWebGL2 {
     this.uKick = loc(this.progFB, "u_kick");
     this.uSpawn = loc(this.progFB, "u_spawn");
     this.uMidPhase = loc(this.progFB, "u_mid_phase");
+    this.uRayPhase = loc(this.progFB, "u_ray_phase");
     this.uShapeA = loc(this.progFB, "u_shapeA[0]");
     this.uShapeB = loc(this.progFB, "u_shapeB[0]");
 
@@ -255,15 +259,15 @@ export class MilkdropWarpReactorWebGL2 {
     let sizeMax = 0.14;
     if (sum >= 0.05) {
       const pick = this._rand() * sum;
-      if (pick < wb) {
-        sizeMin = 0.11;
-        sizeMax = 0.22;
+    if (pick < wb) {
+        sizeMin = 0.055;
+        sizeMax = 0.11;
       } else if (pick < wb + wm) {
-        sizeMin = 0.06;
-        sizeMax = 0.14;
+        sizeMin = 0.03;
+        sizeMax = 0.07;
       } else {
-        sizeMin = 0.02;
-        sizeMax = 0.06;
+        sizeMin = 0.01;
+        sizeMax = 0.03;
       }
     }
     const size = this._lerp(sizeMin, sizeMax, this._rand());
@@ -289,7 +293,7 @@ export class MilkdropWarpReactorWebGL2 {
   }
 
   _updateShapes(dt, vol, b, m, h) {
-    const baseRate = this._lerp(0.15, 2.2, vol);
+    const baseRate = this._lerp(0.30, 4.4, vol);
     const spawnRate = baseRate + 2.0 * b + 1.0 * m + 1.6 * this._kick;
     this._spawnAcc += dt * spawnRate;
 
@@ -396,8 +400,13 @@ export class MilkdropWarpReactorWebGL2 {
     this._energy = a * this._energy + (1 - a) * energyRaw;
 
     this._midPhase = Number.isFinite(this._midPhase) ? this._midPhase : 0;
-    this._midPhase += dt * this._mid;
-    if (this._midPhase > 1e6) this._midPhase -= 1e6;
+    this._midPhase = (this._midPhase + dt * this._mid) % TWO_PI;
+
+    // Prevent low-end steady tones from spinning the feedback "ray reflections" endlessly.
+    // Drive rotation mostly from transients (kick) instead of steady energy/bass.
+    const raySpeed = Math.min(0.35, 0.06 + 0.35 * this._kick + 0.08 * this._treble);
+    this._rayPhase = Number.isFinite(this._rayPhase) ? this._rayPhase : 0;
+    this._rayPhase = (this._rayPhase + dt * raySpeed) % TWO_PI;
 
     const db = Math.max(0, this._bass - this._prevBass);
     this._prevBass = this._bass;
@@ -408,8 +417,8 @@ export class MilkdropWarpReactorWebGL2 {
     const vol = this._clamp01(this._energy);
     const b = this._clamp01(this._bass);
     const m = this._clamp01(this._mid);
-    const h = this._clamp01(this._treble);
-    this._updateShapes(dt, vol, b, m, h);
+    const hi = this._clamp01(this._treble);
+    this._updateShapes(dt, vol, b, m, hi);
 
     const t = ((now - this._t0) * 0.001) % 600.0;
 
@@ -436,6 +445,7 @@ export class MilkdropWarpReactorWebGL2 {
     gl.uniform1f(this.uEnergy, this._energy);
     gl.uniform1f(this.uKick, this._kick);
     if (this.uMidPhase !== null) gl.uniform1f(this.uMidPhase, this._midPhase);
+    if (this.uRayPhase !== null) gl.uniform1f(this.uRayPhase, this._rayPhase);
     if (this.uShapeA !== null) gl.uniform4fv(this.uShapeA, this._shapeA);
     if (this.uShapeB !== null) gl.uniform4fv(this.uShapeB, this._shapeB);
 
@@ -521,9 +531,7 @@ uniform float u_treble;
 uniform float u_energy;
 uniform float u_kick;
 uniform float u_mid_phase;
-const int SHAPES = 9;
-uniform vec4 u_shapeA[SHAPES];
-uniform vec4 u_shapeB[SHAPES];
+uniform float u_ray_phase;
 const int SHAPES = 9;
 uniform vec4 u_shapeA[SHAPES];
 uniform vec4 u_shapeB[SHAPES];
@@ -571,7 +579,8 @@ void main(){
   // --- feedback warp (Milkdrop-ish) ---
   float swirl = 0.35 + u_mid*0.95 + u_energy*0.35;
   float wob  = 0.45*sin(u_time*0.30 + r*2.70) + 0.25*cos(u_time*0.21 - r*4.10);
-  float a = ang + swirl*wob + u_time*0.22 + u_mid_phase*0.85;
+  // Use bounded u_ray_phase for rotation so it can't "lap" dozens of times on steady low end.
+  float a = ang + swirl*wob + u_ray_phase + u_mid_phase*0.85;
 
   // zoom/pump driven by bass + kick
   float zoom = 0.985 - u_bass*0.018 + u_kick*0.028;
@@ -623,9 +632,9 @@ void main(){
   float w1 = (55.0 + 90.0*u_treble);
   float w2 = (40.0 + 75.0*u_treble);
 
-  float yA = 0.08*sin(p.x*2.2 + u_time*1.15 + u_mid_phase*1.20) + 0.06*sin(p.x*4.6 - u_time*0.90);
-  float yB = 0.09*sin(p.x*1.5 - u_time*0.95 - u_mid_phase*1.10) + 0.05*sin(p.x*5.2 + u_time*1.35);
-  float yC = 0.06*sin(p.x*3.1 + u_time*1.40 + u_mid_phase*0.90) + 0.04*sin(p.x*6.1 - u_time*0.70);
+  float yA = 0.08*sin(p.x*2.2 + u_ray_phase*1.10) + 0.06*sin(p.x*4.6 - u_ray_phase*0.85);
+  float yB = 0.09*sin(p.x*1.5 - u_ray_phase*0.95) + 0.05*sin(p.x*5.2 + u_ray_phase*1.05);
+  float yC = 0.06*sin(p.x*3.1 + u_ray_phase*1.30) + 0.04*sin(p.x*6.1 - u_ray_phase*0.75);
 
   float lineA = ribbon(p, yA*amp, w1);
   float lineB = ribbon(p, yB*amp, w2);
@@ -635,12 +644,12 @@ void main(){
   vec3 colB = hsv2rgb(vec3(baseHue + 0.33, 0.85, 1.00));
   vec3 colC = hsv2rgb(vec3(baseHue + 0.66, 0.80, 1.00));
 
-  float lineGain = smoothstep(0.06, 0.28, u_energy);
+  float lineGain = 0.25 + 0.75 * smoothstep(0.06, 0.28, u_energy);
 
   vec3 add = vec3(0.0);
-  add += colA * lineA * (0.55 * lineGain);
-  add += colB * lineB * (0.45 * lineGain);
-  add += colC * lineC * (0.40 * lineGain);
+  add += colA * lineA * (0.65 * lineGain);
+  add += colB * lineB * (0.52 * lineGain);
+  add += colC * lineC * (0.46 * lineGain);
 
   // Radial pulse rings (bass/kick)
   float ringR = 0.22 + 0.08*sin(u_time*0.55) + 0.12*u_bass;
@@ -731,6 +740,10 @@ uniform float u_treble;
 uniform float u_energy;
 uniform float u_kick;
 uniform float u_mid_phase;
+uniform float u_ray_phase;
+const int SHAPES = 9;
+uniform vec4 u_shapeA[SHAPES];
+uniform vec4 u_shapeB[SHAPES];
 
 float hash12(vec2 p){
   vec3 p3 = fract(vec3(p.xyx) * 0.1031);
@@ -772,7 +785,7 @@ void main(){
 
   float swirl = 0.35 + u_mid*0.95 + u_energy*0.35;
   float wob  = 0.45*sin(u_time*0.30 + r*2.70) + 0.25*cos(u_time*0.21 - r*4.10);
-  float a = ang + swirl*wob + u_time*0.22 + u_mid_phase*0.85;
+  float a = ang + swirl*wob + u_ray_phase + u_mid_phase*0.85;
 
   float zoom = 0.985 - u_bass*0.018 + u_kick*0.028;
   vec2 q = vec2(cos(a), sin(a)) * r * zoom;
@@ -816,9 +829,9 @@ void main(){
   float w1 = (55.0 + 90.0*u_treble);
   float w2 = (40.0 + 75.0*u_treble);
 
-  float yA = 0.08*sin(p.x*2.2 + u_time*1.15 + u_mid_phase*1.20) + 0.06*sin(p.x*4.6 - u_time*0.90);
-  float yB = 0.09*sin(p.x*1.5 - u_time*0.95 - u_mid_phase*1.10) + 0.05*sin(p.x*5.2 + u_time*1.35);
-  float yC = 0.06*sin(p.x*3.1 + u_time*1.40 + u_mid_phase*0.90) + 0.04*sin(p.x*6.1 - u_time*0.70);
+  float yA = 0.08*sin(p.x*2.2 + u_ray_phase*1.10) + 0.06*sin(p.x*4.6 - u_ray_phase*0.85);
+  float yB = 0.09*sin(p.x*1.5 - u_ray_phase*0.95) + 0.05*sin(p.x*5.2 + u_ray_phase*1.05);
+  float yC = 0.06*sin(p.x*3.1 + u_ray_phase*1.30) + 0.04*sin(p.x*6.1 - u_ray_phase*0.75);
 
   float lineA = ribbon(p, yA*amp, w1);
   float lineB = ribbon(p, yB*amp, w2);
@@ -828,12 +841,12 @@ void main(){
   vec3 colB = hsv2rgb(vec3(baseHue + 0.33, 0.85, 1.00));
   vec3 colC = hsv2rgb(vec3(baseHue + 0.66, 0.80, 1.00));
 
-  float lineGain = smoothstep(0.06, 0.28, u_energy);
+  float lineGain = 0.25 + 0.75 * smoothstep(0.06, 0.28, u_energy);
 
   vec3 add = vec3(0.0);
-  add += colA * lineA * (0.55 * lineGain);
-  add += colB * lineB * (0.45 * lineGain);
-  add += colC * lineC * (0.40 * lineGain);
+  add += colA * lineA * (0.65 * lineGain);
+  add += colB * lineB * (0.52 * lineGain);
+  add += colC * lineC * (0.46 * lineGain);
 
   float ringR = 0.22 + 0.08*sin(u_time*0.55) + 0.12*u_bass;
   float ring = exp(-abs(r - ringR) * (28.0 + 38.0*u_kick));
