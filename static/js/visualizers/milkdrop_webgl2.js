@@ -6,6 +6,7 @@
 import { createProgram, createFullscreenQuad } from "/static/js/webgl/util.js";
 
 const TWO_PI = Math.PI * 2;
+const TIME_WRAP = 9e5; // seconds (~10.4 days)
 
 export class MilkdropWarpReactorWebGL2 {
   static id = "milkdrop";
@@ -56,7 +57,7 @@ export class MilkdropWarpReactorWebGL2 {
     this._kick = 0;
 
     // Spawned shapes (fixed speed per-shape)
-    this._shapeCount = 9;
+    this._shapeCount = 32;
     this._shapePos = new Float32Array(this._shapeCount * 2);
     this._shapeDir = new Float32Array(this._shapeCount * 2);
     this._shapeSpeed = new Float32Array(this._shapeCount);
@@ -67,6 +68,7 @@ export class MilkdropWarpReactorWebGL2 {
     this._shapeHue = new Float32Array(this._shapeCount);
     this._shapeAge = new Float32Array(this._shapeCount);
     this._shapeLife = new Float32Array(this._shapeCount);
+    this._shapeKill = new Float32Array(this._shapeCount);
     this._shapeA = new Float32Array(this._shapeCount * 4);
     this._shapeB = new Float32Array(this._shapeCount * 4);
     this._shapeIndex = 0;
@@ -103,9 +105,12 @@ export class MilkdropWarpReactorWebGL2 {
     this.aPosPR = gl.getAttribLocation(this.progPresent, "a_pos");
     this.uTex = loc(this.progPresent, "u_tex");
 
-    // Ping-pong targets
+    // Ping-pong targets (locked to initial size to avoid feedback wipes on resize jitter).
     this._w = 0;
     this._h = 0;
+    // Canvas size for the present pass (can change independently).
+    this._cw = 0;
+    this._ch = 0;
     this._texA = this._texB = null;
     this._fbA = this._fbB = null;
     this._readTex = this._writeTex = null;
@@ -119,22 +124,18 @@ export class MilkdropWarpReactorWebGL2 {
     if (this._destroyed || !gl) return;
     if (gl.isContextLost && gl.isContextLost()) return;
 
-    const w = this.canvas.width | 0;
-    const h = this.canvas.height | 0;
-    if (w <= 2 || h <= 2) return;
+    const cw = this.canvas.width | 0;
+    const ch = this.canvas.height | 0;
+    if (cw <= 2 || ch <= 2) return;
 
-    gl.viewport(0, 0, w, h);
+    this._cw = cw;
+    this._ch = ch;
 
-    if (w !== this._w || h !== this._h || !this._readTex) {
-      this._w = w;
-      this._h = h;
-      this._recreateTargets(w, h);
-    }
+    gl.viewport(0, 0, cw, ch);
   }
 
   _recreateTargets(w, h) {
     const gl = this.gl;
-
     // cleanup old
     if (this._texA) gl.deleteTexture(this._texA);
     if (this._texB) gl.deleteTexture(this._texB);
@@ -232,32 +233,45 @@ export class MilkdropWarpReactorWebGL2 {
   }
 
   _spawnShape(vol, b, m, h) {
-    const i = this._shapeIndex;
-    this._shapeIndex = (this._shapeIndex + 1) % this._shapeCount;
+    const start = this._shapeIndex;
+    let i = start;
+    do {
+      if (this._shapeLife[i] <= 0) {
+        this._shapeIndex = (i + 1) % this._shapeCount;
+        break;
+      }
+      i = (i + 1) % this._shapeCount;
+    } while (i !== start);
+
+    if (this._shapeLife[i] > 0) {
+      if (this._shapeKill[i] <= 0) this._shapeKill[i] = 1.0;
+      this._shapeIndex = (i + 1) % this._shapeCount;
+      return false;
+    }
 
     const ang = this._rand() * Math.PI * 2;
     const dirx = Math.cos(ang);
     const diry = Math.sin(ang);
 
-    const speed = this._lerp(1.1, 2.8, vol) * (0.9 + 0.2 * this._rand());
+    const speed = this._lerp(0.35, 0.90, vol) * (0.9 + 0.2 * this._rand());
 
     const wb = b * 1.2;
     const wm = m * 1.0;
     const wh = h * 0.8;
     const sum = wb + wm + wh;
-    let sizeMin = 0.06;
-    let sizeMax = 0.14;
+    let sizeMin = 0.020;
+    let sizeMax = 0.050;
     if (sum >= 0.05) {
       const pick = this._rand() * sum;
-    if (pick < wb) {
-        sizeMin = 0.055;
-        sizeMax = 0.11;
+      if (pick < wb) {
+        sizeMin = 0.020;
+        sizeMax = 0.045;
       } else if (pick < wb + wm) {
-        sizeMin = 0.03;
-        sizeMax = 0.07;
+        sizeMin = 0.012;
+        sizeMax = 0.030;
       } else {
-        sizeMin = 0.01;
-        sizeMax = 0.03;
+        sizeMin = 0.006;
+        sizeMax = 0.015;
       }
     }
     const size = this._lerp(sizeMin, sizeMax, this._rand());
@@ -280,18 +294,37 @@ export class MilkdropWarpReactorWebGL2 {
     this._shapeHue[i] = hue;
     this._shapeAge[i] = 0;
     this._shapeLife[i] = life;
+    this._shapeKill[i] = 0;
+    return true;
   }
 
-  _updateShapes(dt, vol, b, m, h) {
-    const baseRate = this._lerp(0.30, 4.4, vol);
-    const spawnRate = baseRate + 2.0 * b + 1.0 * m + 1.6 * this._kick;
-    this._spawnAcc += dt * spawnRate;
-
+  _updateShapes(dtSpawn, dtMove, vol, b, m, h, kickNow) {
+    const baseRate = this._lerp(0.15, 2.2, vol);
+    // Continuous spawn rate: keep mid + high driving spawn.
+    // (Optional: small bass/kick influence retained but reduced.)
+    const spawnRate = (baseRate + 0.70 * m + 0.85 * h + 0.15 * b + 0.25 * this._kick) * 0.75;
+    // Spawn based on real elapsed time (not clamped dt).
+    this._spawnAcc += dtSpawn * spawnRate;
     let spawned = 0;
-    while (this._spawnAcc >= 1.0 && spawned < this._shapeCount) {
-      this._spawnAcc -= 1.0;
-      this._spawnShape(vol, b, m, h);
-      spawned++;
+    const toSpawn = Math.min(this._shapeCount, Math.floor(this._spawnAcc));
+    if (toSpawn > 0) {
+      for (let k = 0; k < toSpawn; k++) {
+        if (!this._spawnShape(vol, b, m, h)) break;
+        spawned++;
+      }
+      this._spawnAcc -= spawned;
+    }
+
+    // Instant burst on bass transients (attack), not sustained bass.
+    // kickNow is derived from positive bass delta (db) in onFrame().
+    const KICK_BURST = 5; // "X shapes" on a strong hit
+    if (kickNow > 0.12) {
+      const burstBase = Math.min(KICK_BURST, 1 + Math.floor(kickNow * (KICK_BURST - 1)));
+      const burst = Math.max(1, Math.round(burstBase * 0.75));
+      for (let k = 0; k < burst && spawned < this._shapeCount; k++) {
+        if (!this._spawnShape(vol, b, m, h)) break;
+        spawned++;
+      }
     }
 
     for (let i = 0; i < this._shapeCount; i++) {
@@ -299,6 +332,7 @@ export class MilkdropWarpReactorWebGL2 {
       const bi = ai;
 
       if (this._shapeLife[i] <= 0) {
+        this._shapeKill[i] = 0;
         this._shapeA[ai] = 0;
         this._shapeA[ai + 1] = 0;
         this._shapeA[ai + 2] = 0;
@@ -310,15 +344,27 @@ export class MilkdropWarpReactorWebGL2 {
         continue;
       }
 
-      this._shapeAge[i] += dt;
+      this._shapeAge[i] += dtMove;
 
-      const dx = this._shapeDir[i * 2] * this._shapeSpeed[i] * dt;
-      const dy = this._shapeDir[i * 2 + 1] * this._shapeSpeed[i] * dt;
+      let kill = this._shapeKill[i];
+      if (kill > 0) {
+        kill = Math.max(0, kill - dtMove * 2.0);
+        this._shapeKill[i] = kill;
+        if (kill === 0) {
+          this._shapeLife[i] = 0;
+          this._shapeA[ai + 2] = 0;
+          this._shapeB[bi + 2] = 0;
+          continue;
+        }
+      }
+
+      const dx = this._shapeDir[i * 2] * this._shapeSpeed[i] * dtMove;
+      const dy = this._shapeDir[i * 2 + 1] * this._shapeSpeed[i] * dtMove;
       const px = this._shapePos[i * 2] + dx;
       const py = this._shapePos[i * 2 + 1] + dy;
       this._shapePos[i * 2] = px;
       this._shapePos[i * 2 + 1] = py;
-      this._shapeRot[i] += this._shapeSpin[i] * dt;
+      this._shapeRot[i] += this._shapeSpin[i] * dtMove;
 
       if (px * px + py * py > 2.25) {
         this._shapeLife[i] = 0;
@@ -329,8 +375,8 @@ export class MilkdropWarpReactorWebGL2 {
 
       const fadeIn = this._smoothstep(0.0, 0.20, this._shapeAge[i]);
       const r = Math.sqrt(px * px + py * py);
-      const fadeOut = 1.0 - this._smoothstep(1.05, 1.25, r);
-      const life = fadeIn * fadeOut;
+      const fadeOut = 1.0 - this._smoothstep(1.20, 1.45, r);
+      const life = fadeIn * fadeOut * (kill > 0 ? kill : 1.0);
 
       this._shapeA[ai] = px;
       this._shapeA[ai + 1] = py;
@@ -349,25 +395,30 @@ export class MilkdropWarpReactorWebGL2 {
     if (this._destroyed || !gl) return;
     if (gl.isContextLost && gl.isContextLost()) return;
 
-    const w = this.canvas.width | 0;
-    const h = this.canvas.height | 0;
-    if (w <= 2 || h <= 2) return;
+    const cw = this.canvas.width | 0;
+    const ch = this.canvas.height | 0;
+    if (cw <= 2 || ch <= 2) return;
 
-    if (w !== this._w || h !== this._h || !this._readTex) {
-      this._w = w;
-      this._h = h;
-      this._recreateTargets(w, h);
+    // First-time init (lock FBO size to initial canvas size).
+    if (!this._readTex || this._w <= 2 || this._h <= 2) {
+      this._w = cw;
+      this._h = ch;
+      this._recreateTargets(this._w, this._h);
     }
+    // Always track current canvas size for the present pass.
+    this._cw = cw;
+    this._ch = ch;
 
     const now = performance.now();
-    let dt = (now - this._lastNow) * 0.001;
+    const dtReal = Math.max(0.0, (now - this._lastNow) * 0.001);
     this._lastNow = now;
-    dt = Math.min(0.05, Math.max(0.0, dt));
+    // Keep a clamped dt for motion/visual stability.
+    const dt = Math.min(0.05, dtReal);
 
     const srcSpec = frame?.spectrum;
     let spec = srcSpec;
-    if(srcSpec){
-      if(!this._specBuf || this._specBuf.length !== srcSpec.length){
+    if (srcSpec) {
+      if (!this._specBuf || this._specBuf.length !== srcSpec.length) {
         this._specBuf = new Float32Array(srcSpec.length);
       }
       this._specBuf.set(srcSpec);
@@ -378,43 +429,55 @@ export class MilkdropWarpReactorWebGL2 {
     const fftSize = Number(frame?.fftSize ?? 2048);
 
     const bassRaw = this._shape(this._bandHz(spec, sr, fftSize, 35, 140) * gain * 2.2);
-    const midRaw  = this._shape(this._bandHz(spec, sr, fftSize, 180, 2200) * gain * 1.6);
-    const treRaw  = this._shape(this._bandHz(spec, sr, fftSize, 2800, 12000) * gain * 1.3);
+    const midRaw = this._shape(this._bandHz(spec, sr, fftSize, 180, 2200) * gain * 1.6);
+    const treRaw = this._shape(this._bandHz(spec, sr, fftSize, 2800, 12000) * gain * 1.3);
     const energyRaw = this._shape(this._bandHz(spec, sr, fftSize, 45, 12000) * gain * 1.9);
 
     const smoothRate = 10.0;
-    const a = Math.exp(-dt * smoothRate);
+    // Smooth based on real time (cap just to avoid absurd jumps).
+    const a = Math.exp(-Math.min(0.25, dtReal) * smoothRate);
     this._bass   = a * this._bass   + (1 - a) * bassRaw;
     this._mid    = a * this._mid    + (1 - a) * midRaw;
     this._treble = a * this._treble + (1 - a) * treRaw;
     this._energy = a * this._energy + (1 - a) * energyRaw;
 
     this._midPhase = Number.isFinite(this._midPhase) ? this._midPhase : 0;
-    this._midPhase = (this._midPhase + dt * this._mid) % TWO_PI;
+    this._midPhase = (this._midPhase + dtReal * this._mid) % TWO_PI;
 
     // Prevent low-end steady tones from spinning the feedback "ray reflections" endlessly.
     // Drive rotation mostly from transients (kick) instead of steady energy/bass.
     const raySpeed = Math.min(0.35, 0.06 + 0.35 * this._kick + 0.08 * this._treble);
     this._rayPhase = Number.isFinite(this._rayPhase) ? this._rayPhase : 0;
-    this._rayPhase = (this._rayPhase + dt * raySpeed) % TWO_PI;
+    this._rayPhase = (this._rayPhase + dtReal * raySpeed) % TWO_PI;
 
     const db = Math.max(0, this._bass - this._prevBass);
     this._prevBass = this._bass;
+    const kickNow = Math.min(1, db * 7.0);
     const kickDecayRate = 8.0;
-    this._kick *= Math.exp(-dt * kickDecayRate);
-    this._kick = Math.max(this._kick, Math.min(1, db * 7.0));
+    this._kick *= Math.exp(-dtReal * kickDecayRate);
+    this._kick = Math.max(this._kick, kickNow);
+
+    if (![this._bass, this._mid, this._treble, this._energy, this._kick].every(Number.isFinite)) {
+      console.warn("[milkdrop] non-finite audio state", {
+        bass: this._bass,
+        mid: this._mid,
+        tre: this._treble,
+        en: this._energy,
+        kick: this._kick,
+      });
+    }
 
     const vol = this._clamp01(this._energy);
     const b = this._clamp01(this._bass);
     const m = this._clamp01(this._mid);
     const hi = this._clamp01(this._treble);
-    this._updateShapes(dt, vol, b, m, hi);
+    this._updateShapes(dtReal, dt, vol, b, m, hi, kickNow);
 
-    const t = ((now - this._t0) * 0.001) % 600.0;
+    const t = ((now - this._t0) * 0.001) % TIME_WRAP;
 
-    // --- PASS 1: feedback warp into writeFB ---
+    // --- PASS 1: feedback warp into writeFB (use FBO size) ---
     gl.bindFramebuffer(gl.FRAMEBUFFER, this._writeFB);
-    gl.viewport(0, 0, w, h);
+    gl.viewport(0, 0, this._w, this._h);
 
     gl.useProgram(this.progFB);
 
@@ -426,7 +489,7 @@ export class MilkdropWarpReactorWebGL2 {
     gl.bindTexture(gl.TEXTURE_2D, this._readTex);
     gl.uniform1i(this.uPrev, 0);
 
-    gl.uniform2f(this.uRes, w, h);
+    gl.uniform2f(this.uRes, this._w, this._h);
     gl.uniform1f(this.uTime, t);
     gl.uniform1f(this.uDt, dt);
     gl.uniform1f(this.uBass, this._bass);
@@ -441,9 +504,9 @@ export class MilkdropWarpReactorWebGL2 {
 
     gl.drawArrays(gl.TRIANGLES, 0, 6);
 
-    // --- PASS 2: present to screen ---
+    // --- PASS 2: present to screen (use canvas size) ---
     gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    gl.viewport(0, 0, w, h);
+    gl.viewport(0, 0, this._cw, this._ch);
 
     gl.useProgram(this.progPresent);
 
@@ -512,7 +575,7 @@ uniform float u_energy;
 uniform float u_kick;
 uniform float u_mid_phase;
 uniform float u_ray_phase;
-const int SHAPES = 9;
+const int SHAPES = 32;
 uniform vec4 u_shapeA[SHAPES];
 uniform vec4 u_shapeB[SHAPES];
 
