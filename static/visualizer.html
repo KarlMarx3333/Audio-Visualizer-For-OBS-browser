@@ -88,7 +88,20 @@ function resize(){
     const topRect = topbar.getBoundingClientRect();
     availH = Math.max(0, availH - topRect.height);
   }
-  const scale = 0.8;
+  // Default: UI view = 0.8, OBS embed = 1.0 (fills source).
+  // Optional override: ?scale=0.8 (only if explicitly provided)
+  const scaleStr = qs.get("scale");
+  let scale;
+  if(scaleStr !== null && scaleStr !== ""){
+    const s = parseFloat(scaleStr);
+    if(Number.isFinite(s)){
+      scale = Math.max(0.1, Math.min(1.0, s));
+    }else{
+      scale = embed ? 1.0 : 0.8;
+    }
+  }else{
+    scale = embed ? 1.0 : 0.8;
+  }
   const cssW = Math.max(2, Math.floor(availW * scale));
   const cssH = Math.max(2, Math.floor(availH * scale));
   canvas.style.width = `${cssW}px`;

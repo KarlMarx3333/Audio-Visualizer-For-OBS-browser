@@ -25,18 +25,9 @@ export class MilkdropWarpReactorWebGL2 {
       powerPreference: "high-performance",
     };
 
-    this.gl =
-      canvas.getContext("webgl2", opts) ||
-      canvas.getContext("webgl", opts) ||
-      canvas.getContext("experimental-webgl", opts);
-
-    if (!this.gl) throw new Error("WebGL not available");
-
-    this.isWebGL2 =
-      typeof WebGL2RenderingContext !== "undefined" &&
-      this.gl instanceof WebGL2RenderingContext;
-
-    const gl = this.gl;
+    const gl = canvas.getContext("webgl2", opts);
+    if (!gl) throw new Error("MilkDrop requires WebGL2");
+    this.gl = gl;
 
     this._destroyed = false;
     this._onContextLost = (e) => {
@@ -103,7 +94,6 @@ export class MilkdropWarpReactorWebGL2 {
     this.uTreble = loc(this.progFB, "u_treble");
     this.uEnergy = loc(this.progFB, "u_energy");
     this.uKick = loc(this.progFB, "u_kick");
-    this.uSpawn = loc(this.progFB, "u_spawn");
     this.uMidPhase = loc(this.progFB, "u_mid_phase");
     this.uRayPhase = loc(this.progFB, "u_ray_phase");
     this.uShapeA = loc(this.progFB, "u_shapeA[0]");
@@ -181,7 +171,7 @@ export class MilkdropWarpReactorWebGL2 {
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
     gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    const internalFormat = this.isWebGL2 && gl.RGBA8 ? gl.RGBA8 : gl.RGBA;
+    const internalFormat = gl.RGBA8;
     gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
     gl.texImage2D(gl.TEXTURE_2D, 0, internalFormat, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
     gl.bindTexture(gl.TEXTURE_2D, null);
@@ -495,18 +485,9 @@ export class MilkdropWarpReactorWebGL2 {
   }
 
   _vs() {
-    if (this.isWebGL2) {
-      return `#version 300 es
+    return `#version 300 es
       in vec2 a_pos;
       out vec2 v_uv;
-      void main(){
-        v_uv = a_pos * 0.5 + 0.5;
-        gl_Position = vec4(a_pos, 0.0, 1.0);
-      }`;
-    }
-    return `
-      attribute vec2 a_pos;
-      varying vec2 v_uv;
       void main(){
         v_uv = a_pos * 0.5 + 0.5;
         gl_Position = vec4(a_pos, 0.0, 1.0);
@@ -514,8 +495,7 @@ export class MilkdropWarpReactorWebGL2 {
   }
 
   _fsFeedback() {
-    if (this.isWebGL2) {
-      return `#version 300 es
+    return `#version 300 es
 precision highp float;
 
 in vec2 v_uv;
@@ -722,198 +702,10 @@ void main(){
 
   outColor = vec4(col, 1.0);
 }`;
-    }
-
-    // WebGL1 fallback
-    return `
-precision highp float;
-
-varying vec2 v_uv;
-
-uniform sampler2D u_prev;
-uniform vec2  u_res;
-uniform float u_time;
-uniform float u_dt;
-uniform float u_bass;
-uniform float u_mid;
-uniform float u_treble;
-uniform float u_energy;
-uniform float u_kick;
-uniform float u_mid_phase;
-uniform float u_ray_phase;
-const int SHAPES = 9;
-uniform vec4 u_shapeA[SHAPES];
-uniform vec4 u_shapeB[SHAPES];
-
-float hash12(vec2 p){
-  vec3 p3 = fract(vec3(p.xyx) * 0.1031);
-  p3 += dot(p3, p3.yzx + 33.33);
-  return fract((p3.x + p3.y) * p3.z);
-}
-
-vec3 hsv2rgb(vec3 c){
-  vec4 K = vec4(1.0, 2.0/3.0, 1.0/3.0, 3.0);
-  vec3 p = abs(fract(c.xxx + K.xyz) * 6.0 - K.www);
-  return c.z * mix(K.xxx, clamp(p - K.xxx, 0.0, 1.0), c.y);
-}
-
-mat2 rot2(float a){
-  float c = cos(a), s = sin(a);
-  return mat2(c, -s, s, c);
-}
-
-float sdNgon(vec2 p, float n, float r){
-  float a = atan(p.y, p.x);
-  float k = 6.28318530718 / n;
-  return cos(floor(0.5 + a / k) * k - a) * length(p) - r;
-}
-
-float ribbon(vec2 p, float y0, float w){
-  float d = abs(p.y - y0);
-  return exp(-d * w);
-}
-
-void main(){
-  vec2 uv = v_uv;
-  float aspect = u_res.x / max(1.0, u_res.y);
-
-  vec2 p = uv - 0.5;
-  p.x *= aspect;
-
-  float r = length(p);
-  float ang = atan(p.y, p.x);
-
-  float swirl = 0.35 + u_mid*0.95 + u_energy*0.35;
-  float wob  = 0.45*sin(u_time*0.30 + r*2.70) + 0.25*cos(u_time*0.21 - r*4.10);
-  float a = ang + swirl*wob + u_ray_phase + u_mid_phase*0.85;
-
-  float zoom = 0.985 - u_bass*0.018 + u_kick*0.028;
-  vec2 q = vec2(cos(a), sin(a)) * r * zoom;
-
-  float sh = (0.004 + 0.018*u_treble) * (0.65 + 0.55*u_energy);
-  q += sh * vec2(
-    sin(u_time*1.25 + p.y*6.0),
-    cos(u_time*1.05 + p.x*5.0)
-  );
-
-  vec2 uv2 = q;
-  uv2.x /= aspect;
-  uv2 += 0.5;
-
-  // per-pixel mesh warp before sampling feedback
-  float mf = mix(18.0, 42.0, u_treble);
-  float ma = (0.0012 + 0.0048*u_energy) * (0.55 + 0.85*u_treble);
-  vec2 mp = (uv2 - 0.5);
-  mp.x *= aspect;
-  vec2 gw = vec2(
-    sin(mp.y*mf + u_time*1.70) + sin(mp.y*(mf*0.53) - u_time*2.10),
-    cos(mp.x*mf + u_time*1.30) + cos(mp.x*(mf*0.61) + u_time*2.40)
-  );
-  uv2 += ma * gw;
-
-  uv2 = clamp(uv2, vec2(0.001), vec2(0.999));
-
-  vec3 prev = texture2D(u_prev, uv2).rgb;
-
-  float fade60 = 0.965 - 0.020*u_energy + 0.010*u_kick;
-  fade60 = clamp(fade60, 0.85, 0.995);
-  float fade = pow(fade60, u_dt * 60.0);
-  prev *= fade;
-  prev *= vec3(1.005, 0.998, 1.002);
-  float pm = max(prev.r, max(prev.g, prev.b));
-  prev *= 1.0 / (1.0 + pm * 0.6);
-
-  float baseHue = fract(0.58 + 0.12*sin(u_time*0.06) + 0.18*u_mid + 0.10*u_treble);
-
-  float amp = (0.10 + 0.18*u_mid + 0.10*u_bass) * (0.85 + 0.60*u_energy);
-  float w1 = (55.0 + 90.0*u_treble);
-  float w2 = (40.0 + 75.0*u_treble);
-
-  float yA = 0.08*sin(p.x*2.2 + u_ray_phase*1.10) + 0.06*sin(p.x*4.6 - u_ray_phase*0.85);
-  float yB = 0.09*sin(p.x*1.5 - u_ray_phase*0.95) + 0.05*sin(p.x*5.2 + u_ray_phase*1.05);
-  float yC = 0.06*sin(p.x*3.1 + u_ray_phase*1.30) + 0.04*sin(p.x*6.1 - u_ray_phase*0.75);
-
-  float lineA = ribbon(p, yA*amp, w1);
-  float lineB = ribbon(p, yB*amp, w2);
-  float lineC = ribbon(p, yC*amp, w2);
-
-  vec3 colA = hsv2rgb(vec3(baseHue + 0.00, 0.90, 1.00));
-  vec3 colB = hsv2rgb(vec3(baseHue + 0.33, 0.85, 1.00));
-  vec3 colC = hsv2rgb(vec3(baseHue + 0.66, 0.80, 1.00));
-
-  float lineGain = 0.25 + 0.75 * smoothstep(0.06, 0.28, u_energy);
-
-  vec3 add = vec3(0.0);
-  add += colA * lineA * (0.65 * lineGain);
-  add += colB * lineB * (0.52 * lineGain);
-  add += colC * lineC * (0.46 * lineGain);
-
-  float ringR = 0.22 + 0.08*sin(u_time*0.55) + 0.12*u_bass;
-  float ring = exp(-abs(r - ringR) * (28.0 + 38.0*u_kick));
-  add += hsv2rgb(vec3(baseHue + 0.12, 0.70, 1.00)) * ring * (0.25 + 0.85*u_kick);
-
-  // rotating polygon shapes
-  float rotA = u_time*0.35 + u_mid_phase*0.95;
-  vec2 sp = p;
-
-  vec2 s1p = rot2(rotA) * (sp * (1.10 + 0.25*u_energy));
-  float d1 = sdNgon(s1p, 6.0, 0.23 + 0.08*u_bass);
-  float s1 = exp(-abs(d1) * (18.0 + 28.0*u_energy));
-  float f1 = smoothstep(0.015, 0.0, d1);
-  add += hsv2rgb(vec3(baseHue + 0.05, 0.80, 1.00)) * (s1*0.20 + f1*0.05) * (0.45 + 0.65*u_energy);
-
-  vec2 offs = vec2(0.12*sin(u_time*0.70), 0.08*cos(u_time*0.50));
-  vec2 s2p = rot2(-rotA*1.30 + 0.70) * ((sp + offs) * (1.25 + 0.20*u_energy));
-  float d2 = sdNgon(s2p, 3.0, 0.18 + 0.06*u_mid);
-  float s2 = exp(-abs(d2) * (22.0 + 30.0*u_energy));
-  float f2 = smoothstep(0.018, 0.0, d2);
-  add += hsv2rgb(vec3(baseHue + 0.45, 0.85, 1.00)) * (s2*0.18 + f2*0.04) * (0.40 + 0.70*u_energy);
-
-  // spawned shapes (fixed speed per-shape)
-  float throwBoost = 0.90;
-  for (int i = 0; i < SHAPES; i++) {
-    vec4 sa = u_shapeA[i];
-    vec4 sb = u_shapeB[i];
-    float life = sb.z;
-    if (life <= 0.0) continue;
-
-    vec2 pos = sa.xy;
-    float size = sa.z;
-    float sides = sa.w;
-    float rotS = sb.x;
-    float hue = fract(baseHue + sb.y);
-
-    vec2 lp = rot2(rotS) * (p - pos);
-    float dS = sdNgon(lp, sides, size);
-    float glow = exp(-abs(dS) * (20.0 + 40.0*u_energy));
-    float fill = smoothstep(0.020, 0.0, dS);
-    vec3 sc  = hsv2rgb(vec3(hue, 0.85, 1.0));
-    add += sc * (glow*0.32 + fill*0.10) * throwBoost * life;
-  }
-
-  vec2 g = floor((uv * vec2(240.0, 135.0)) + u_time*vec2(12.0, 7.0));
-  float hh = hash12(g);
-  float sparkle = smoothstep(0.996 - 0.004*u_treble, 1.0, hh);
-  add += vec3(1.0) * sparkle * (0.08 + 0.35*u_treble) * (0.5 + 0.6*u_energy);
-
-  vec3 col = prev + add;
-  float m = max(col.r, max(col.g, col.b));
-  col *= 1.0 / (1.0 + m * 0.35);
-  col += col * col * (0.30 + 0.35*u_energy);
-
-  float vig = smoothstep(1.25, 0.20, r);
-  col *= (0.55 + 0.45*vig);
-
-  col = col / (1.0 + col);
-  col = pow(col, vec3(0.92));
-
-  gl_FragColor = vec4(col, 1.0);
-}`;
   }
 
   _fsPresent() {
-    if (this.isWebGL2) {
-      return `#version 300 es
+    return `#version 300 es
 precision highp float;
 
 in vec2 v_uv;
@@ -926,17 +718,6 @@ void main(){
   // tiny final pop
   col = pow(col, vec3(0.98));
   outColor = vec4(col, 1.0);
-}`;
-    }
-
-    return `
-precision highp float;
-varying vec2 v_uv;
-uniform sampler2D u_tex;
-void main(){
-  vec3 col = texture2D(u_tex, v_uv).rgb;
-  col = pow(col, vec3(0.98));
-  gl_FragColor = vec4(col, 1.0);
 }`;
   }
 }

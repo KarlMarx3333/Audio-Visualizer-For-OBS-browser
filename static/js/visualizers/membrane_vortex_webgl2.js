@@ -92,7 +92,7 @@ export class NeonMembraneVortexWebGL2 {
 
     // PERF: render scale (WebGL2 only) — reduces fragment workload drastically.
     // 1.0 = full res, 0.75 is a good default, 0.66 for weaker GPUs.
-    this._renderScale = 1;
+    this._renderScale = 0.75;
     this._rt = null;
     if (this.isWebGL2) this._initRenderTarget();
 
