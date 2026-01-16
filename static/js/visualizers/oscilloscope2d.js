@@ -118,7 +118,12 @@ export class Oscilloscope2D {
     const userGain = frame.gain || 1.0;
 
     // Peak/RMS estimate (downsampled) for AGC + energy/kick.
-    let peak = 1e-6;
+    let ampLevel = Number(frame.peak);
+    if (!Number.isFinite(ampLevel)) {
+      const rmsIn = Number(frame.rms);
+      if (Number.isFinite(rmsIn)) ampLevel = rmsIn * 2.0;
+    }
+    let scanPeak = 1e-6;
     let sumSq = 0;
     let count = 0;
     const n = wave.length;
@@ -126,14 +131,18 @@ export class Oscilloscope2D {
     for (let i = 0; i < n; i += scanStep) {
       const v = wave[i];
       const a = Math.abs(v);
-      if (a > peak) peak = a;
+      if (a > scanPeak) scanPeak = a;
       sumSq += v * v;
       count++;
     }
+    if (!Number.isFinite(ampLevel)) ampLevel = scanPeak;
+    ampLevel = Math.max(ampLevel, 1e-4);
 
     // Target amplitude so the wave fills the viewport but doesn't clip.
     const target = 0.80;
-    const desired = Math.max(0.8, Math.min(3.0, target / peak));
+    const minGain = 0.35;
+    const maxGain = 3.0;
+    const desired = Math.max(minGain, Math.min(maxGain, target / (ampLevel * userGain)));
 
     // AGC smoothing: fast attack, slower release.
     const atk = 1.0 - Math.exp(-dt * 18.0);
@@ -165,7 +174,7 @@ export class Oscilloscope2D {
 
     const px = this._px;
     const py = this._py;
-    const amp = this._amp;
+    const ampArr = this._amp;
     let pts = 0;
     const invN = 1 / (n - 1);
     for (let i = 0; i < n; i += step) {
@@ -174,7 +183,7 @@ export class Oscilloscope2D {
       const y = mid - wave[i] * g * scale;
       px[pts] = x;
       py[pts] = y;
-      amp[pts] = Math.abs(wave[i]);
+      ampArr[pts] = Math.abs(wave[i]);
       pts++;
     }
     if ((n - 1) % step !== 0) {
@@ -183,7 +192,7 @@ export class Oscilloscope2D {
       const y = mid - wave[i] * g * scale;
       px[pts] = x;
       py[pts] = y;
-      amp[pts] = Math.abs(wave[i]);
+      ampArr[pts] = Math.abs(wave[i]);
       pts++;
     }
     if (pts < 2) return;
@@ -213,7 +222,7 @@ export class Oscilloscope2D {
       const nny = dx * inv;
       nx[i] = nnx;
       ny[i] = nny;
-      const mod = 0.85 + 0.35 * amp[i];
+      const mod = 0.85 + 0.35 * ampArr[i];
       const th = thClamp * mod;
       lx[i] = px[i] + nnx * th;
       ly[i] = py[i] + nny * th;
