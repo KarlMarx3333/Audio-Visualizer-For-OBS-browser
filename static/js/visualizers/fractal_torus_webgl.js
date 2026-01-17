@@ -3,7 +3,9 @@
 // Two-pass: BufferA (feedback + audio row) -> Image (raymarch).
 // Overlay-friendly: no opaque page background; final alpha derived from luminance.
 
-const TIME_WRAP = Math.PI * 2 * 100;
+import { MultiPassPipeline, TIME_WRAP as PIPE_TIME_WRAP } from "/static/js/webgl/multipass.js";
+
+const TIME_WRAP = PIPE_TIME_WRAP;
 const TRAVEL_WRAP = 1024.0; // multiple of 2 to match fract repeat period
 
 export class FractalTorusWebGL {
@@ -30,177 +32,79 @@ export class FractalTorusWebGL {
     const gl = this.gl;
     gl.disable(gl.DEPTH_TEST);
     gl.disable(gl.CULL_FACE);
+    gl.disable(gl.BLEND);
 
-    // Fullscreen quad
-    this._vb = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this._vb);
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array([
-        -1, -1, 1, -1, -1, 1,
-        -1, 1, 1, -1, 1, 1,
-      ]),
-      gl.STATIC_DRAW
-    );
+    const qs = new URLSearchParams(location.search);
+    const pass = (qs.get("pass") || "").toLowerCase();
+    this._showBufferA = pass === "a" || pass === "buffera";
 
-    // Programs
-    this._progA = this._createProgram(VS, FS_BUFFER_A);
-    this._progI = this._createProgram(VS, FS_IMAGE);
+    this._uTravel = { uniform: "u_travel", kind: "value", value: 0 };
 
-    // Locs BufferA
-    this._locA = {
-      a_pos: gl.getAttribLocation(this._progA, "a_pos"),
-      u_prev: gl.getUniformLocation(this._progA, "u_prev"),
-      u_audio: gl.getUniformLocation(this._progA, "u_audio"),
-      u_res: gl.getUniformLocation(this._progA, "u_res"),
-      u_time: gl.getUniformLocation(this._progA, "u_time"),
-    };
+    const passSpecs = [
+      {
+        name: "A",
+        target: "texture",
+        feedback: true,
+        fsSrc: FS_BUFFER_A,
+        builtins: { res: true, time: "wrap", dt: true },
+        bindings: [
+          { uniform: "u_prev", kind: "prev", pass: "A", unit: 0 },
+          { uniform: "u_audio", kind: "audio", unit: 1 },
+        ],
+      },
+      {
+        name: "Image",
+        target: "screen",
+        feedback: false,
+        fsSrc: this._showBufferA ? FS_BLIT : FS_IMAGE,
+        builtins: { res: true, time: "wrap", dt: true },
+        bindings: [
+          { uniform: "u_buf", kind: "pass", pass: "A", unit: 0 },
+        ],
+        uniforms: this._showBufferA ? null : [this._uTravel],
+      },
+    ];
 
-    // Locs Image
-    this._locI = {
-      a_pos: gl.getAttribLocation(this._progI, "a_pos"),
-      u_buf: gl.getUniformLocation(this._progI, "u_buf"),
-      u_res: gl.getUniformLocation(this._progI, "u_res"),
-      u_time: gl.getUniformLocation(this._progI, "u_time"),
-      u_travel: gl.getUniformLocation(this._progI, "u_travel"),
-    };
-
-    // Ping-pong for BufferA
-    this._w = 0;
-    this._h = 0;
-    this._texA = null;
-    this._fbA = null;
-    this._texB = null;
-    this._fbB = null;
-    this._readTex = null;
-    this._readFB = null;
-    this._writeTex = null;
-    this._writeFB = null;
-
-    // Audio texture (spectrum) used by BufferA to write row 0
-    this._audioW = 512; // POT, cheap
-    this._audioTex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this._audioTex);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(
-      gl.TEXTURE_2D,
-      0,
-      gl.RGBA,
-      this._audioW,
-      1,
-      0,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      null
-    );
-    gl.bindTexture(gl.TEXTURE_2D, null);
-
-    this._audioPixels = new Uint8Array(this._audioW * 4);
-
-    // Fast AGC for spectrum so it moves at normal levels
-    this._agcSpec = 1e-3;
-    this._invSpec = 1.0;
-
-    this._t0 = performance.now();
-    this._lastTs = 0;
+    this._pipeline = new MultiPassPipeline(gl, passSpecs, { timeWrap: TIME_WRAP });
+    this._lastNowMs = performance.now();
+    this._tFallback = 0;
     this._failed = false;
+
+    this.onResize(canvas.width, canvas.height, window.devicePixelRatio || 1);
   }
 
   onResize(w, h, dpr) {
     const cw = this.canvas.width | 0;
     const ch = this.canvas.height | 0;
     if (cw <= 2 || ch <= 2) return;
-    if (cw === this._w && ch === this._h && this._readTex) return;
-    this._w = cw;
-    this._h = ch;
-    this._recreateTargets(cw, ch);
+    this._pipeline.resize(cw, ch);
   }
 
   onFrame(frame) {
     if (this._failed) return;
 
-    const gl = this.gl;
-    const w = this.canvas.width | 0;
-    const h = this.canvas.height | 0;
-    if (w <= 2 || h <= 2) return;
-
-    if (!this._readTex || w !== this._w || h !== this._h) {
-      this._w = w;
-      this._h = h;
-      this._recreateTargets(w, h);
-    }
-
     try {
-      // dt seconds (host-owned). Prefer frame.dt; fall back to timestamps for legacy.
-      let dt = (typeof frame?.dt === "number") ? frame.dt : 0;
-      if (!(dt > 0 && isFinite(dt))) {
-        // frame.ts from Python is UNIX seconds; some older code treated it as ms. Normalize to ms here.
-        const tsMs = (typeof frame?.tsMs === "number") ? frame.tsMs
-          : (typeof frame?.ts === "number") ? (frame.ts < 1e10 ? frame.ts * 1000.0 : frame.ts)
-          : performance.now();
-        dt = 0.016;
-        if (this._lastTs) dt = (tsMs - this._lastTs) * 0.001;
-        this._lastTs = tsMs;
-        if (!isFinite(dt) || dt <= 0) dt = 0.016;
+      let dt = Number(frame && frame.dt);
+      if (!Number.isFinite(dt) || dt <= 0) {
+        const now = performance.now();
+        const last = this._lastNowMs || now;
+        dt = (now - last) * 0.001;
+        this._lastNowMs = now;
+        if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60;
         if (dt > 0.1) dt = 0.1;
       }
 
-      const tAbs = (typeof frame?.t === "number") ? frame.t : (performance.now() - this._t0) * 0.001;
-      const tPhase = tAbs % TIME_WRAP;
-      const travel = (tAbs * 0.5) % TRAVEL_WRAP;
-      const spec = frame?.spectrum;
-      const gain = frame?.gain || 1.0;
+      let t = Number(frame && frame.t);
+      if (!Number.isFinite(t) || t < 0) {
+        let acc = this._tFallback;
+        if (!Number.isFinite(acc)) acc = 0;
+        acc += dt;
+        this._tFallback = acc;
+        t = acc;
+      }
 
-      // Update audio texture (spectrum -> row)
-      this._updateAudioTexture(spec, gain, dt);
-
-      // -------- Pass A: feedback buffer --------
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this._writeFB);
-      gl.viewport(0, 0, w, h);
-
-      gl.useProgram(this._progA);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this._vb);
-      gl.enableVertexAttribArray(this._locA.a_pos);
-      gl.vertexAttribPointer(this._locA.a_pos, 2, gl.FLOAT, false, 0, 0);
-
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this._readTex);
-      gl.uniform1i(this._locA.u_prev, 0);
-
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, this._audioTex);
-      gl.uniform1i(this._locA.u_audio, 1);
-
-      gl.uniform2f(this._locA.u_res, w, h);
-      gl.uniform1f(this._locA.u_time, tPhase);
-
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-      // -------- Pass I: final image --------
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, w, h);
-
-      gl.useProgram(this._progI);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this._vb);
-      gl.enableVertexAttribArray(this._locI.a_pos);
-      gl.vertexAttribPointer(this._locI.a_pos, 2, gl.FLOAT, false, 0, 0);
-
-      // IMPORTANT: Image reads the current BufferA output (writeTex)
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this._writeTex);
-      gl.uniform1i(this._locI.u_buf, 0);
-
-      gl.uniform2f(this._locI.u_res, w, h);
-      gl.uniform1f(this._locI.u_time, tPhase);
-      gl.uniform1f(this._locI.u_travel, travel);
-
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-      // Swap
-      this._swap();
+      this._uTravel.value = (t * 0.5) % TRAVEL_WRAP;
+      this._pipeline.render(frame);
     } catch (err) {
       this._failed = true;
       console.error("[FractalTorusWebGL] render failed:", err);
@@ -209,170 +113,18 @@ export class FractalTorusWebGL {
   }
 
   destroy() {
-    const gl = this.gl;
-    if (!gl) return;
-    try {
-      gl.deleteProgram(this._progA);
-      gl.deleteProgram(this._progI);
-      gl.deleteBuffer(this._vb);
-
-      if (this._audioTex) gl.deleteTexture(this._audioTex);
-
-      this._deleteTarget(this._texA, this._fbA);
-      this._deleteTarget(this._texB, this._fbB);
-    } catch (_) {}
-  }
-
-  // ---------------- internals ----------------
-
-  _updateAudioTexture(spec, gain, dt) {
-    const gl = this.gl;
-    const N = this._audioW;
-    const px = this._audioPixels;
-
-    // AGC from spectrum peak (fast, stable)
-    let peak = 0;
-    if (spec && spec.length > 8) {
-      for (let i = 1; i < spec.length; i += 8) {
-        const v = spec[i];
-        if (v > peak) peak = v;
-      }
-    }
-    const inst = (peak || 0) * (gain || 1.0);
-    const decay = Math.exp(-dt / 0.8);
-    this._agcSpec = Math.max(inst, this._agcSpec * decay, 1e-3);
-    this._invSpec = 1.0 / (this._agcSpec + 1e-6);
-
-    // Fill: R channel used by shadertoy logic (m)
-    const specLen = spec && spec.length ? spec.length : 0;
-    for (let i = 0; i < N; i++) {
-      let s = 0;
-      if (specLen > 2) {
-        const si = 1 + ((i * (specLen - 2) / (N - 1)) | 0);
-        const v = (spec[si] || 0) * (gain || 1.0) * this._invSpec;
-        // Make it obvious: boost + sqrt curve (no screaming required)
-        s = Math.sqrt(Math.max(0, Math.min(1, v * 4.5)));
-      }
-      const b = (s * 255) | 0;
-      const o = i * 4;
-      px[o + 0] = b;
-      px[o + 1] = b;
-      px[o + 2] = b;
-      px[o + 3] = 255;
-    }
-
-    gl.bindTexture(gl.TEXTURE_2D, this._audioTex);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-  }
-
-  _swap() {
-    const rt = this._readTex;
-    const rf = this._readFB;
-    this._readTex = this._writeTex;
-    this._readFB = this._writeFB;
-    this._writeTex = rt;
-    this._writeFB = rf;
-  }
-
-  _recreateTargets(w, h) {
-    const gl = this.gl;
-
-    this._deleteTarget(this._texA, this._fbA);
-    this._deleteTarget(this._texB, this._fbB);
-
-    const A = this._createTarget(w, h);
-    const B = this._createTarget(w, h);
-    this._texA = A.tex;
-    this._fbA = A.fb;
-    this._texB = B.tex;
-    this._fbB = B.fb;
-
-    // Init both to transparent black
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbA);
-    gl.viewport(0, 0, w, h);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbB);
-    gl.viewport(0, 0, w, h);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-    this._readTex = this._texA;
-    this._readFB = this._fbA;
-    this._writeTex = this._texB;
-    this._writeFB = this._fbB;
-  }
-
-  _createTarget(w, h) {
-    const gl = this.gl;
-    const tex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, w, h, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
-
-    const fb = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-    gl.framebufferTexture2D(gl.FRAMEBUFFER, gl.COLOR_ATTACHMENT0, gl.TEXTURE_2D, tex, 0);
-
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-    return { tex, fb };
-  }
-
-  _deleteTarget(tex, fb) {
-    const gl = this.gl;
-    if (!gl) return;
-    if (fb) gl.deleteFramebuffer(fb);
-    if (tex) gl.deleteTexture(tex);
-  }
-
-  _createProgram(vsSrc, fsSrc) {
-    const gl = this.gl;
-    const vs = this._compile(gl.VERTEX_SHADER, vsSrc);
-    const fs = this._compile(gl.FRAGMENT_SHADER, fsSrc);
-    const p = gl.createProgram();
-    gl.attachShader(p, vs);
-    gl.attachShader(p, fs);
-    gl.linkProgram(p);
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-      const log = gl.getProgramInfoLog(p) || "unknown";
-      gl.deleteProgram(p);
-      throw new Error("Program link failed: " + log);
-    }
-    return p;
-  }
-
-  _compile(type, src) {
-    const gl = this.gl;
-    const s = gl.createShader(type);
-    gl.shaderSource(s, src);
-    gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-      const log = gl.getShaderInfoLog(s) || "unknown";
-      gl.deleteShader(s);
-      throw new Error("Shader compile failed: " + log);
-    }
-    return s;
+    if (this._pipeline) this._pipeline.destroy();
   }
 }
 
 // ---------------- Shaders ----------------
 
-const VS = `
-attribute vec2 a_pos;
+const FS_BLIT = `
+precision mediump float;
 varying vec2 v_uv;
+uniform sampler2D u_buf;
 void main() {
-  v_uv = a_pos * 0.5 + 0.5;
-  gl_Position = vec4(a_pos, 0.0, 1.0);
+  gl_FragColor = texture2D(u_buf, v_uv);
 }
 `;
 
