@@ -13,6 +13,7 @@ export class ChromaRing2D {
     this._smooth = 0.5;
     this._minHz = 80;
     this._maxHz = 6000;
+    this._lastNow = performance.now();
   }
 
   onResize(w,h,dpr){
@@ -24,6 +25,12 @@ export class ChromaRing2D {
     const w = this.canvas.width;
     const h = this.canvas.height;
     ctx.clearRect(0,0,w,h);
+
+    const now = performance.now();
+    let dt = (now - this._lastNow) * 0.001;
+    this._lastNow = now;
+    if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60;
+    if (dt > 0.1) dt = 0.1;
 
     const spec = frame.spectrum;
     if(!spec || spec.length === 0){
@@ -78,7 +85,7 @@ export class ChromaRing2D {
       }
     }
 
-    const a = this._smooth;
+    const a = Math.pow(this._smooth, dt * 60.0);
     for(let i=0;i<12;i++){
       let v = maxv > 0 ? (this._chroma[i] / maxv) : 0;
       v = Math.pow(v, 0.7);

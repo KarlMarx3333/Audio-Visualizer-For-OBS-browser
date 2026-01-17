@@ -14,6 +14,30 @@
 //   trailFade: fixed default
 //   kickSensitivity: fixed default
 
+const TIME_WRAP = Math.PI * 2 * 100;
+
+function clamp01(x) {
+  return Math.max(0, Math.min(1, x));
+}
+
+function normLog(x, k) {
+  const v = Math.max(0, x);
+  return clamp01(Math.log1p(v * k) / Math.log1p(k));
+}
+
+function bandAvg(spec, sr, nfft, hz0, hz1) {
+  if (!spec || !spec.length) return 0;
+  const hzPerBin = sr / nfft;
+  let b0 = (hz0 / hzPerBin) | 0;
+  let b1 = (hz1 / hzPerBin) | 0;
+  if (b1 <= b0 + 1) b1 = b0 + 2;
+  if (b0 < 1) b0 = 1;
+  if (b1 > spec.length) b1 = spec.length;
+  let sum = 0, c = 0;
+  for (let i = b0; i < b1; i++) { sum += spec[i]; c++; }
+  return c ? (sum / c) : 0;
+}
+
 export class ParticleSwarmWebGL2 {
   static id = "swarm";
   static name = "Particle Swarm / Explosions (WebGL2)";
@@ -229,35 +253,16 @@ export class ParticleSwarmWebGL2 {
     const gain = frame?.gain || 1.0;
     const rms0 = Array.isArray(frame?.rms) ? (frame.rms[0] || 0) : (frame?.rms || 0);
 
-    const clamp01 = (x) => Math.max(0, Math.min(1, x));
-    const normLog = (x, k) => {
-      const v = Math.max(0, x);
-      return clamp01(Math.log1p(v * k) / Math.log1p(k));
-    };
-
-    const bandAvg = (hz0, hz1) => {
-      if (!spec || !spec.length) return 0;
-      const hzPerBin = sr / nfft;
-      let b0 = (hz0 / hzPerBin) | 0;
-      let b1 = (hz1 / hzPerBin) | 0;
-      if (b1 <= b0 + 1) b1 = b0 + 2;
-      if (b0 < 1) b0 = 1;
-      if (b1 > spec.length) b1 = spec.length;
-      let sum = 0, c = 0;
-      for (let i = b0; i < b1; i++) { sum += spec[i]; c++; }
-      return c ? (sum / c) : 0;
-    };
-
-    const bassRaw = bandAvg(40, 180) * gain;
-    const midRaw  = bandAvg(250, 1200) * gain;
-    const trbRaw  = bandAvg(2500, 9000) * gain;
+    const bassRaw = bandAvg(spec, sr, nfft, 40, 180) * gain;
+    const midRaw  = bandAvg(spec, sr, nfft, 250, 1200) * gain;
+    const trbRaw  = bandAvg(spec, sr, nfft, 2500, 9000) * gain;
 
     const energyT = clamp01(rms0 * 10.0);
     const bassT   = normLog(bassRaw, 130);
     const midT    = normLog(midRaw,  120);
     const trebleT = normLog(trbRaw,  150);
 
-    const a = this._smooth;
+    const a = Math.pow(this._smooth, dt * 60.0);
     this._energy = a * this._energy + (1 - a) * energyT;
     this._bass   = a * this._bass   + (1 - a) * bassT;
     this._mid    = a * this._mid    + (1 - a) * midT;
@@ -268,10 +273,12 @@ export class ParticleSwarmWebGL2 {
     // (fast attack, slow release)
     if (this._bassAvgSlow === 0) this._bassAvgSlow = this._bass; // first frame init
 
+    const aUp = Math.pow(0.92, dt * 60.0);
+    const aDown = Math.pow(0.985, dt * 60.0);
     if (this._bass > this._bassAvgSlow) {
-      this._bassAvgSlow = this._bassAvgSlow * 0.92 + this._bass * 0.08; // rise faster
+      this._bassAvgSlow = this._bassAvgSlow * aUp + this._bass * (1 - aUp); // rise faster
     } else {
-      this._bassAvgSlow = this._bassAvgSlow * 0.985 + this._bass * 0.015; // fall slower
+      this._bassAvgSlow = this._bassAvgSlow * aDown + this._bass * (1 - aDown); // fall slower
     }
 
     // tiny noise floor so silence doesn't make baseline ~0
@@ -322,6 +329,7 @@ export class ParticleSwarmWebGL2 {
     }
 
     const t = (now - this._t0) * 0.001;
+    const tPhase = t % TIME_WRAP;
 
     // simulate + upload VBO
     this._stepParticles(dt, t);
@@ -348,12 +356,16 @@ export class ParticleSwarmWebGL2 {
     gl.uniform2f(this._locFB.u_res, rtW, rtH);
 
     // L -> trail length/brightness (fade closer to 1 => longer)
-    const fade = Math.min(0.995, this.trailFade + 0.018 * this._bass + 0.010 * this._kickFlash);
-    const zoom = 0.992 + 0.010 * this._bass;
-    const rot = 0.02 * (this._mid - 0.5) + 0.04 * Math.sin(t * 0.4) * (0.2 + 0.8 * this._energy);
+    const k = dt * 60.0;
+    const fade60 = Math.min(0.995, this.trailFade + 0.018 * this._bass + 0.010 * this._kickFlash);
+    const zoom60 = 0.992 + 0.010 * this._bass;
+    const rot60 = 0.02 * (this._mid - 0.5) + 0.04 * Math.sin(t * 0.4) * (0.2 + 0.8 * this._energy);
+    const fade = Math.pow(fade60, k);
+    const zoom = Math.pow(zoom60, k);
+    const rot = rot60 * k;
     const glow = 0.6 + 1.8 * this._energy + 0.7 * this._kickFlash;
 
-    gl.uniform1f(this._locFB.u_time, t);
+    gl.uniform1f(this._locFB.u_time, tPhase);
     gl.uniform1f(this._locFB.u_fade, fade);
     gl.uniform1f(this._locFB.u_zoom, zoom);
     gl.uniform1f(this._locFB.u_rot, rot);
@@ -382,7 +394,7 @@ export class ParticleSwarmWebGL2 {
     const hue = (t * 0.06 + this._treble * 0.22 + 0.12 * Math.sin(t * 0.35)) % 1.0;
     const sparkle = Math.min(1.0, 0.15 + 0.85 * this._treble);
 
-    gl.uniform1f(this._locP.u_time, t);
+    gl.uniform1f(this._locP.u_time, tPhase);
     gl.uniform1f(this._locP.u_aspect, aspect);
     gl.uniform1f(this._locP.u_energy, this._energy);
     gl.uniform1f(this._locP.u_bass, this._bass);

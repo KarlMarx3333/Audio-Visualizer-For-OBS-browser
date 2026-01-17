@@ -3,6 +3,9 @@
 // Two-pass: BufferA (feedback + audio row) -> Image (raymarch).
 // Overlay-friendly: no opaque page background; final alpha derived from luminance.
 
+const TIME_WRAP = Math.PI * 2 * 100;
+const TRAVEL_WRAP = 1024.0; // multiple of 2 to match fract repeat period
+
 export class FractalTorusWebGL {
   static id = "fractal_torus";
   static name = "Fractal Torus Tunnel (WebGL)";
@@ -59,6 +62,7 @@ export class FractalTorusWebGL {
       u_buf: gl.getUniformLocation(this._progI, "u_buf"),
       u_res: gl.getUniformLocation(this._progI, "u_res"),
       u_time: gl.getUniformLocation(this._progI, "u_time"),
+      u_travel: gl.getUniformLocation(this._progI, "u_travel"),
     };
 
     // Ping-pong for BufferA
@@ -138,7 +142,10 @@ export class FractalTorusWebGL {
       if (!isFinite(dt) || dt <= 0) dt = 0.016;
       if (dt > 0.1) dt = 0.1;
 
-      const t = (performance.now() - this._t0) * 0.001;
+      const now = performance.now();
+      const tAbs = (now - this._t0) * 0.001;
+      const tPhase = tAbs % TIME_WRAP;
+      const travel = (tAbs * 0.5) % TRAVEL_WRAP;
       const spec = frame?.spectrum;
       const gain = frame?.gain || 1.0;
 
@@ -163,7 +170,7 @@ export class FractalTorusWebGL {
       gl.uniform1i(this._locA.u_audio, 1);
 
       gl.uniform2f(this._locA.u_res, w, h);
-      gl.uniform1f(this._locA.u_time, t);
+      gl.uniform1f(this._locA.u_time, tPhase);
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -182,7 +189,8 @@ export class FractalTorusWebGL {
       gl.uniform1i(this._locI.u_buf, 0);
 
       gl.uniform2f(this._locI.u_res, w, h);
-      gl.uniform1f(this._locI.u_time, t);
+      gl.uniform1f(this._locI.u_time, tPhase);
+      gl.uniform1f(this._locI.u_travel, travel);
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
 
@@ -404,6 +412,7 @@ varying vec2 v_uv;
 uniform sampler2D u_buf; // current BufferA
 uniform vec2 u_res;
 uniform float u_time;
+uniform float u_travel;
 
 #define I_MAX 100
 #define E 0.0005
@@ -440,7 +449,7 @@ float scene(vec3 p) {
   a = cos(0.5 * (p.z) + t);
   rotate(p.yx, a);
   p.xy += vec2(cos(t), sin(t)) * 0.25 + 1.0;
-  p.z -= t;
+  p.z -= u_travel;
 
   ss = p;
   for (int i = 0; i < 4; i++) {

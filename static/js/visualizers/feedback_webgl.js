@@ -2,6 +2,35 @@
 // Feedback Mirror / Infinite TV -- WebGL BufferA + Image pipeline with ping-pong feedback.
 // Overlay-friendly alpha preserved in final pass.
 
+function clamp01(x) {
+  return Math.max(0, Math.min(1, x));
+}
+
+function normLog(x, k) {
+  const v = Math.max(0, x);
+  const t = Math.log1p(v * k) / Math.log1p(k);
+  return clamp01(t);
+}
+
+function bandAvg(spec, sr, nfft, hz0, hz1) {
+  if (!spec || spec.length === 0) return 0;
+  const hzPerBin = sr / nfft;
+  let b0 = (hz0 / hzPerBin) | 0;
+  let b1 = (hz1 / hzPerBin) | 0;
+  if (b1 <= b0 + 1) b1 = b0 + 2;
+  if (b0 < 1) b0 = 1;
+  if (b1 > spec.length) b1 = spec.length;
+  let sum = 0;
+  let c = 0;
+  for (let i = b0; i < b1; i++) {
+    sum += spec[i];
+    c++;
+  }
+  return c > 0 ? (sum / c) : 0;
+}
+
+const TIME_WRAP = Math.PI * 2 * 100;
+
 export class FeedbackMirrorWebGL {
   static id = "feedback";
   static name = "Feedback Mirror (WebGL)";
@@ -55,6 +84,7 @@ export class FeedbackMirrorWebGL {
       u_audio: gl.getUniformLocation(this._progA, "u_audio"),
       u_res: gl.getUniformLocation(this._progA, "u_res"),
       u_time: gl.getUniformLocation(this._progA, "u_time"),
+      u_dt: gl.getUniformLocation(this._progA, "u_dt"),
       u_energy: gl.getUniformLocation(this._progA, "u_energy"),
       u_bass: gl.getUniformLocation(this._progA, "u_bass"),
       u_mid: gl.getUniformLocation(this._progA, "u_mid"),
@@ -151,7 +181,8 @@ export class FeedbackMirrorWebGL {
       if (!isFinite(dt) || dt <= 0) dt = 0.016;
       if (dt > 0.1) dt = 0.1;
 
-      const t = (performance.now() - this._t0) * 0.001;
+      const tAbs = (performance.now() - this._t0) * 0.001;
+      const tPhase = tAbs % TIME_WRAP;
 
       // --- Audio features (robust + reactive, no allocations)
       const srcSpec = frame?.spectrum;
@@ -171,40 +202,16 @@ export class FeedbackMirrorWebGL {
 
       const rms0 = Array.isArray(frame?.rms) ? (frame.rms[0] || 0) : (frame?.rms || 0);
 
-      // Normalize helpers (log compression so it reacts across levels)
-      const normLog = (x, k) => {
-        const v = Math.max(0, x);
-        const t = Math.log1p(v * k) / Math.log1p(k);
-        return Math.max(0, Math.min(1, t));
-      };
-
-      const bandAvg = (hz0, hz1) => {
-        if (!spec || spec.length === 0) return 0;
-        const hzPerBin = sr / nfft;
-        let b0 = (hz0 / hzPerBin) | 0;
-        let b1 = (hz1 / hzPerBin) | 0;
-        if (b1 <= b0 + 1) b1 = b0 + 2;
-        if (b0 < 1) b0 = 1;
-        if (b1 > spec.length) b1 = spec.length;
-        let sum = 0;
-        let c = 0;
-        for (let i = b0; i < b1; i++) {
-          sum += spec[i];
-          c++;
-        }
-        return c > 0 ? (sum / c) : 0;
-      };
-
-      const bassRaw = bandAvg(40, 180) * gain;
-      const midRaw = bandAvg(250, 1200) * gain;
-      const trebRaw = bandAvg(2500, 9000) * gain;
+      const bassRaw = bandAvg(spec, sr, nfft, 40, 180) * gain;
+      const midRaw = bandAvg(spec, sr, nfft, 250, 1200) * gain;
+      const trebRaw = bandAvg(spec, sr, nfft, 2500, 9000) * gain;
 
       const energyT = Math.max(0, Math.min(1, rms0 * 10.0));
       const bassT = normLog(bassRaw, 120);
       const midT = normLog(midRaw, 120);
       const trebleT = normLog(trebRaw, 140);
 
-      const a = this._smooth;
+      const a = Math.pow(this._smooth, dt * 60.0);
       this._energy = a * this._energy + (1 - a) * energyT;
       this._bass = a * this._bass + (1 - a) * bassT;
       this._mid = a * this._mid + (1 - a) * midT;
@@ -231,7 +238,8 @@ export class FeedbackMirrorWebGL {
       gl.uniform1i(this._locA.u_audio, 1);
 
       gl.uniform2f(this._locA.u_res, w, h);
-      gl.uniform1f(this._locA.u_time, t);
+      gl.uniform1f(this._locA.u_time, tPhase);
+      gl.uniform1f(this._locA.u_dt, dt);
       gl.uniform1f(this._locA.u_energy, this._energy);
       gl.uniform1f(this._locA.u_bass, this._bass);
       gl.uniform1f(this._locA.u_mid, this._mid);
@@ -466,6 +474,7 @@ uniform sampler2D u_prev;
 uniform sampler2D u_audio;
 uniform vec2 u_res;
 uniform float u_time;
+uniform float u_dt;
 uniform float u_energy;
 uniform float u_bass;
 uniform float u_mid;
@@ -536,7 +545,8 @@ void main(){
   vec4 prev = vec4(pr.r, pg.g, pb.b, (pr.a + pg.a + pb.a) / 3.0);
 
   // feedback fade (slightly more fade when quiet so it doesn't linger)
-  float fade = 0.992;
+  float fade60 = 0.992;
+  float fade = pow(fade60, u_dt * 60.0);
   prev.rgb *= fade;
   prev.a   *= fade;
 
