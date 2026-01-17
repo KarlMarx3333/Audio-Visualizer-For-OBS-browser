@@ -297,13 +297,16 @@ async function pollState(){
     if(typeof st.visual_smoothing === "number"){
       vsmoothEl.value = String(st.visual_smoothing);
     }
-    const rms = (st.metrics?.rms||[]).map(x=>x.toFixed(4)).join(",");
-    const peak = (st.metrics?.peak||[]).map(x=>x.toFixed(4)).join(",");
-    const err = vizError ? ` | visualizer <b style="color:#ff6b6b">error</b>` : "";
-    meta.innerHTML = `Status <b>${st.status}</b> | ws <b>${st.ws_clients}</b> | rms <b>${rms}</b> | peak <b>${peak}</b> | fft <b>${st.fft_size}</b> | gain <b>${Number(gainEl.value).toFixed(2)}x</b> | smooth <b>${Number(vsmoothEl.value).toFixed(2)}</b>${err}`;
+    if(!embed){
+      const rms = (st.metrics?.rms||[]).map(x=>x.toFixed(4)).join(",");
+      const peak = (st.metrics?.peak||[]).map(x=>x.toFixed(4)).join(",");
+      const err = vizError ? ` | visualizer <b style="color:#ff6b6b">error</b>` : "";
+      meta.innerHTML = `Status <b>${st.status}</b> | ws <b>${st.ws_clients}</b> | rms <b>${rms}</b> | peak <b>${peak}</b> | fft <b>${st.fft_size}</b> | gain <b>${Number(gainEl.value).toFixed(2)}x</b> | smooth <b>${Number(vsmoothEl.value).toFixed(2)}</b>${err}`;
+    }
   }catch(e){}
 }
-setInterval(pollState, 800);
+const pollIntervalMs = embed ? 1600 : 800;
+setInterval(pollState, pollIntervalMs);
 pollState();
 
 connectAudioWS({
@@ -446,7 +449,11 @@ function animate(){
   // Fill stable frame object
   frame.frameId = latestFrame.frameId;
   frame.ts = latestFrame.ts;
-  frame.tsMs = (typeof latestFrame.ts === "number") ? latestFrame.ts * 1000 : 0;
+  if(Number.isFinite(latestFrame.ts)){
+    frame.tsMs = latestFrame.ts < 1e12 ? latestFrame.ts * 1000 : latestFrame.ts;
+  }else{
+    frame.tsMs = 0;
+  }
   frame.channels = ch;
   frame.rms = latestFrame.rms;
   frame.peak = latestFrame.peak;

@@ -14,6 +14,8 @@
 //   trailFade: fixed default
 //   kickSensitivity: fixed default
 
+import { dtFromFrameOrNow, tFromFrameOrSelf } from "./timebase.js";
+
 const TIME_WRAP = Math.PI * 2 * 100;
 
 function clamp01(x) {
@@ -88,7 +90,7 @@ export class ParticleSwarmWebGL2 {
 
     // ---- time / perf ----
     this._t0 = performance.now();
-    this._lastT = this._t0;
+    this._lastNowMs = this._t0;
     this._avgDt = 1 / 60;
     this._lastAutoScaleT = this._t0;
     this._bassPrev = 0;
@@ -232,8 +234,9 @@ export class ParticleSwarmWebGL2 {
     }
 
     const now = performance.now();
-    const dt = Math.max(0.001, Math.min(0.05, (now - this._lastT) * 0.001));
-    this._lastT = now;
+    let dt = dtFromFrameOrNow(frame, now, this);
+    if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60;
+    dt = Math.max(0.001, Math.min(0.05, dt));
     this._avgDt = this._avgDt * 0.92 + dt * 0.08;
 
     // ----- audio features -----
@@ -328,7 +331,7 @@ export class ParticleSwarmWebGL2 {
       }
     }
 
-    const t = (typeof frame?.t === "number") ? frame.t : (now - this._t0) * 0.001;
+    const t = tFromFrameOrSelf(frame, dt, this);
     const tPhase = t % TIME_WRAP;
 
     // simulate + upload VBO

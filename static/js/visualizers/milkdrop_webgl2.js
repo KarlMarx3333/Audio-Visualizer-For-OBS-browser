@@ -4,6 +4,7 @@
 // CPU: only computes audio bands -> uniforms.
 
 import { createProgram, createFullscreenQuad } from "/static/js/webgl/util.js";
+import { dtFromFrameOrNow, tFromFrameOrSelf } from "./timebase.js";
 
 const TWO_PI = Math.PI * 2;
 const TIME_WRAP = 9e5; // seconds (~10.4 days)
@@ -43,7 +44,7 @@ export class MilkdropWarpReactorWebGL2 {
     gl.clearColor(0, 0, 0, 1);
 
     this._t0 = performance.now();
-    this._lastNow = this._t0;
+    this._lastNowMs = this._t0;
 
     // Smoothed audio
     this._bass = 0;
@@ -410,8 +411,8 @@ export class MilkdropWarpReactorWebGL2 {
     this._ch = ch;
 
     const now = performance.now();
-    const dtReal = Math.max(0.0, (now - this._lastNow) * 0.001);
-    this._lastNow = now;
+    let dtReal = dtFromFrameOrNow(frame, now, this);
+    if (!Number.isFinite(dtReal) || dtReal < 0) dtReal = 0;
     // Keep a clamped dt for motion/visual stability.
     const dt = Math.min(0.05, dtReal);
 
@@ -473,7 +474,8 @@ export class MilkdropWarpReactorWebGL2 {
     const hi = this._clamp01(this._treble);
     this._updateShapes(dtReal, dt, vol, b, m, hi, kickNow);
 
-    const t = ((now - this._t0) * 0.001) % TIME_WRAP;
+    const tAbs = tFromFrameOrSelf(frame, dtReal, this);
+    const t = tAbs % TIME_WRAP;
 
     // --- PASS 1: feedback warp into writeFB (use FBO size) ---
     gl.bindFramebuffer(gl.FRAMEBUFFER, this._writeFB);

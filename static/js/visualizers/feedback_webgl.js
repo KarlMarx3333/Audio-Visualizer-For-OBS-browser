@@ -141,7 +141,6 @@ export class FeedbackMirrorWebGL {
     this._mid = 0;
     this._treble = 0;
     this._smooth = 0.86;
-    this._specBuf = null;
 
     this._t0 = performance.now();
     this._lastTs = 0;
@@ -191,15 +190,7 @@ export class FeedbackMirrorWebGL {
       const tPhase = tAbs % TIME_WRAP;
 
       // --- Audio features (robust + reactive, no allocations)
-      const srcSpec = frame?.spectrum;
-      let spec = srcSpec;
-      if (srcSpec) {
-        if (!this._specBuf || this._specBuf.length !== srcSpec.length) {
-          this._specBuf = new Float32Array(srcSpec.length);
-        }
-        this._specBuf.set(srcSpec);
-        spec = this._specBuf;
-      }
+      const spec = frame?.spectrum;
       const sr = frame?.samplerate || 48000;
       const nfft =
         frame?.fftSize ||

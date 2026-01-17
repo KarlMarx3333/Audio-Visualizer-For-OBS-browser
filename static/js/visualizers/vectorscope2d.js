@@ -1,3 +1,5 @@
+import { dtFromFrameOrNow } from "./timebase.js";
+
 export class Vectorscope2D {
   static id = "vectorscope";
   static name = "Stereo Vectorscope / Goniometer";
@@ -9,7 +11,7 @@ export class Vectorscope2D {
     this._dpr = 1;
     this._fade = 0.10;
     this._pseudoDelay = 12;
-    this._lastNow = performance.now();
+    this._lastNowMs = performance.now();
     const qs = new URLSearchParams(location.search);
     this._pseudo = qs.get("pseudo") === "1";
   }
@@ -24,8 +26,7 @@ export class Vectorscope2D {
     const h = this.canvas.height;
 
     const now = performance.now();
-    let dt = (now - this._lastNow) * 0.001;
-    this._lastNow = now;
+    let dt = dtFromFrameOrNow(frame, now, this);
     if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60;
     if (dt > 0.1) dt = 0.1;
     const fade = 1 - Math.pow(1 - this._fade, dt * 60.0);

@@ -1,3 +1,5 @@
+import { dtFromFrameOrNow } from "./timebase.js";
+
 export class Spectrum2D {
   static id = "spectrum";
   static name = "Spectrum Bars";
@@ -7,7 +9,7 @@ export class Spectrum2D {
     this.canvas = canvas;
     this.ctx = canvas.getContext("2d", { alpha: true });
     this._dpr = 1;
-    this._lastNow = performance.now();
+    this._lastNowMs = performance.now();
     this._gain = 1.0;
 
     this._bars = 0;
@@ -359,8 +361,7 @@ export class Spectrum2D {
     const overlay = !!frame.overlay;
 
     const now = performance.now();
-    let dt = (now - this._lastNow) * 0.001;
-    this._lastNow = now;
+    let dt = dtFromFrameOrNow(frame, now, this);
     if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60;
     if (dt > 0.1) dt = 0.1;
 

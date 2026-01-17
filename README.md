@@ -42,6 +42,26 @@ Direct, fixed visualizer links (no auto-switch):
 - `http://127.0.0.1:8787/v/membrane_vortex?embed=1`
 - `http://127.0.0.1:8787/v/milkdrop?embed=1`
 
+## Visualizer engine contract
+Visualizers are ES modules registered in `static/js/visualizers/registry.js` with a class that implements:
+- `constructor(canvas)`
+- `onResize(width, height, dpr)` (optional)
+- `onFrame(frame)`
+- `destroy()` (optional)
+
+The host (`static/visualizer.html`) owns timing and passes a stable `frame` object each tick. Key fields and units:
+- `dt` (seconds), `t` (seconds), and `time = { t, dt }`
+- `viewport = { w, h, dpr }` plus `width`, `height`, `dpr` (backbuffer pixels)
+- `overlay` (true when `?embed=1`)
+- `spectrum`, `wave`, `waveLR` (smoothed audio arrays, read-only)
+- `gain`, `samplerate`, `fftSize`, `rms`, `peak`, `corr`
+
+Do **not** compute dt from `ts`; always use `frame.dt`.
+
+## Debugging
+- `?debug=1` enables mutation detection and exposes detailed error info.
+- Errors show a persistent on-screen warning badge; embed mode uses a small icon and auto-falls back to Spectrum after repeated failures.
+
 ## Included visualizers Demos
 
 ### Particle Swarm / Explosions (WebGL2)

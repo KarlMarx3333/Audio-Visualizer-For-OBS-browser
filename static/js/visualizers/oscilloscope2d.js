@@ -1,3 +1,5 @@
+import { dtFromFrameOrNow } from "./timebase.js";
+
 export class Oscilloscope2D {
   static id = "oscilloscope";
   static name = "Oscilloscope";
@@ -10,7 +12,7 @@ export class Oscilloscope2D {
 
     // Auto-gain to keep the waveform readable across loud/quiet sources.
     this._agc = 1.0;
-    this._lastNow = performance.now();
+    this._lastNowMs = performance.now();
     this._energy = 0;
     this._prevEnergy = 0;
     this._kick = 0;
@@ -97,8 +99,7 @@ export class Oscilloscope2D {
 
     // dt for FPS-independent fade + AGC.
     const now = performance.now();
-    let dt = (now - this._lastNow) * 0.001;
-    this._lastNow = now;
+    let dt = dtFromFrameOrNow(frame, now, this);
     if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60;
     if (dt > 0.1) dt = 0.1;
 

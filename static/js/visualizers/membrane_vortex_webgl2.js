@@ -17,6 +17,7 @@
 //   E (energy) -> exposure + emissive gain
 
 import { createProgram, createFullscreenQuad } from "/static/js/webgl/util.js";
+import { dtFromFrameOrNow, tFromFrameOrSelf } from "./timebase.js";
 
 export class NeonMembraneVortexWebGL2 {
   static id = "membrane_vortex";
@@ -76,7 +77,7 @@ export class NeonMembraneVortexWebGL2 {
     this.uKick = gl.getUniformLocation(this.program, "u_kick");
 
     this._t0 = performance.now();
-    this._lastNow = this._t0;
+    this._lastNowMs = this._t0;
     this._travel = 0;
 
     // Smoothed audio
@@ -192,8 +193,7 @@ export class NeonMembraneVortexWebGL2 {
     const energyRaw = this._shape(e0 * 1.9);
 
     const now = performance.now();
-    let dt = (now - this._lastNow) * 0.001;
-    this._lastNow = now;
+    let dt = dtFromFrameOrNow(frame, now, this);
     if (!Number.isFinite(dt) || dt <= 0) dt = 1.0 / 60.0;
     dt = Math.min(0.05, Math.max(0.0, dt));
 
@@ -218,7 +218,8 @@ export class NeonMembraneVortexWebGL2 {
     this._travel = Number.isFinite(this._travel) ? this._travel : 0;
     this._travel = (this._travel + dt * speed * 2.05) % 100000.0;
 
-    const t = ((now - this._t0) * 0.001) % 600.0;
+    const tAbs = tFromFrameOrSelf(frame, dt, this);
+    const t = tAbs % 600.0;
 
     gl.useProgram(this.program);
 

@@ -1,3 +1,5 @@
+import { dtFromFrameOrNow } from "./timebase.js";
+
 function buildVividLUT() {
   const lut = new Uint8Array(256 * 3);
   for (let i = 0; i < 256; i++) {
@@ -23,7 +25,7 @@ export class Spectrogram2D {
     this.ctx = canvas.getContext("2d", { alpha: true });
     this._dpr = 1;
 
-    this._lastNow = performance.now();
+    this._lastNowMs = performance.now();
     this._scrollAcc = 0;
     this._rowsPerSec = 60;
     this._lut = buildVividLUT();
@@ -48,8 +50,7 @@ export class Spectrogram2D {
     const gain = frame?.gain || 1.0;
 
     const now = performance.now();
-    let dt = (now - this._lastNow) * 0.001;
-    this._lastNow = now;
+    let dt = dtFromFrameOrNow(frame, now, this);
     if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60;
     if (dt > 0.1) dt = 0.1;
 

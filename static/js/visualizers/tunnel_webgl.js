@@ -1,6 +1,8 @@
 // static/js/visualizers/tunnel_webgl.js
 // Tunnel / Warp Speed (WebGL) -- BufferA + Image pipeline with audio row feed.
 
+import { dtFromFrameOrNow, tFromFrameOrSelf } from "./timebase.js";
+
 export class TunnelWarpWebGL {
   static id = "tunnel";
   static name = "Tunnel / Warp Speed (WebGL)";
@@ -108,7 +110,7 @@ export class TunnelWarpWebGL {
     this._invSpec = 1.0;
 
     this._t0 = performance.now();
-    this._lastNow = this._t0;
+    this._lastNowMs = this._t0;
     this._energy = 0;
     this._bass = 0;
     this._mid = 0;
@@ -157,8 +159,7 @@ export class TunnelWarpWebGL {
 
     try {
       const now = performance.now();
-      let dt = (now - this._lastNow) * 0.001;
-      this._lastNow = now;
+      let dt = dtFromFrameOrNow(frame, now, this);
       if (!isFinite(dt) || dt <= 0) dt = 0.016;
       if (dt > 0.1) dt = 0.1;
 
@@ -198,7 +199,8 @@ export class TunnelWarpWebGL {
       this._travel += dt * speed;
       if (this._travel > 1e6) this._travel -= 1e6;
 
-      const t = ((now - this._t0) / 1000.0) % 600.0;
+      const tAbs = tFromFrameOrSelf(frame, dt, this);
+      const t = tAbs % 600.0;
 
       // Update audio texture (spectrum -> row)
       this._updateAudioTexture(spec, gain, dt);

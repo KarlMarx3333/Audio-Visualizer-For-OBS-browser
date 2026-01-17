@@ -1,6 +1,8 @@
 // static/js/visualizers/plasma_webgl.js
 // Neon Plasma (WebGL) -- BufferA + Image pipeline with audio row feed.
 
+import { dtFromFrameOrNow, tFromFrameOrSelf } from "./timebase.js";
+
 export class PlasmaWebGL {
   static id = "plasma";
   static name = "Neon Plasma (WebGL)";
@@ -112,7 +114,7 @@ export class PlasmaWebGL {
     this._t0 = performance.now();
     this._t = 0;
     this._phase = 0;
-    this._lastNow = this._t0;
+    this._lastNowMs = this._t0;
     this._energy = 0;
     this._bass = 0;
     this._treble = 0;
@@ -155,8 +157,7 @@ export class PlasmaWebGL {
 
     try {
       const now = performance.now();
-      let dt = (now - this._lastNow) * 0.001;
-      this._lastNow = now;
+      let dt = dtFromFrameOrNow(frame, now, this);
       if (!isFinite(dt) || dt <= 0) dt = 0.016;
       if (dt > 0.1) dt = 0.1;
 
@@ -185,7 +186,8 @@ export class PlasmaWebGL {
       this._treble = a * this._treble + (1 - a) * clamp01(treble * 30.0);
 
       // Avoid "time gets huge" precision issues + huge dt jumps after tab stalls.
-      this._t = (this._t + dt) % 30.0;
+      const tAbs = tFromFrameOrSelf(frame, dt, this);
+      this._t = tAbs % 30.0;
       const t = this._t;
 
       const speed = 0.35 + 1.2 * this._bass;

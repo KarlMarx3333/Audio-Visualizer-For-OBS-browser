@@ -1,3 +1,5 @@
+import { dtFromFrameOrNow } from "./timebase.js";
+
 export class ChromaRing2D {
   static id = "chroma";
   static name = "Chromagram / Pitch-Class Ring";
@@ -13,7 +15,7 @@ export class ChromaRing2D {
     this._smooth = 0.5;
     this._minHz = 80;
     this._maxHz = 6000;
-    this._lastNow = performance.now();
+    this._lastNowMs = performance.now();
   }
 
   onResize(w,h,dpr){
@@ -27,8 +29,7 @@ export class ChromaRing2D {
     ctx.clearRect(0,0,w,h);
 
     const now = performance.now();
-    let dt = (now - this._lastNow) * 0.001;
-    this._lastNow = now;
+    let dt = dtFromFrameOrNow(frame, now, this);
     if (!Number.isFinite(dt) || dt <= 0) dt = 1 / 60;
     if (dt > 0.1) dt = 0.1;
 
