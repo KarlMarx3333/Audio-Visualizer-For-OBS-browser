@@ -136,11 +136,12 @@ let latestFrame = null;
 let lastState = { samplerate: 48000, fft_size: 2048 };
 let vizError = null;
 const mutationLogged = new Set();
-const debugBadge = debug ? document.createElement("div") : null;
-if(debugBadge){
-  debugBadge.style.cssText = "position:fixed;right:8px;bottom:8px;z-index:9999;background:rgba(200,40,40,0.9);color:#fff;padding:4px 6px;border-radius:4px;font:11px/1.2 sans-serif;pointer-events:none;display:none;";
-  document.body.appendChild(debugBadge);
-}
+// Always-on error badge (visible in embed too).
+const debugBadge = document.createElement("div");
+debugBadge.style.cssText = debug
+  ? "position:fixed;right:8px;bottom:8px;z-index:9999;background:rgba(200,40,40,0.92);color:#fff;padding:4px 6px;border-radius:4px;font:11px/1.2 sans-serif;pointer-events:none;display:none;"
+  : "position:fixed;right:8px;bottom:8px;z-index:9999;background:rgba(200,40,40,0.78);color:#fff;padding:2px 6px;border-radius:999px;font:12px/1.2 sans-serif;pointer-events:none;display:none;";
+document.body.appendChild(debugBadge);
 
 function errorText(err){
   if(!err) return "";
@@ -150,14 +151,13 @@ function errorText(err){
 }
 
 function updateErrorBadge(){
-  if(!debugBadge) return;
   if(!vizError){
     debugBadge.style.display = "none";
     debugBadge.removeAttribute("title");
     return;
   }
   debugBadge.style.display = "block";
-  debugBadge.textContent = "viz error";
+  debugBadge.textContent = debug ? "viz error" : "⚠";
   debugBadge.title = errorText(vizError);
 }
 
@@ -315,7 +315,38 @@ let lastSpectrum = null;
 let lastWave = null;
 let lastWaveLR = null;
 
+// Stable, reusable frame object (avoid per-frame allocations).
+const frame = {
+  frameId: 0,
+  ts: 0,
+  tsMs: 0,
+  channels: 1,
+  rms: null,
+  peak: null,
+  corr: null,
+  overlay: false,
+  waveLR: null,
+  spectrum: null,
+  wave: null,
+  gain: 1.0,
+  samplerate: 48000,
+  fftSize: 2048,
+  // Engine timing (seconds): prefer these over ts.
+  dt: 1/60,
+  t: 0,
+  // Viewport (backbuffer pixels)
+  width: 0,
+  height: 0,
+  dpr: 1,
+  time: { t: 0, dt: 1/60 },
+  viewport: { w: 0, h: 0, dpr: 1 },
+};
+
+let _vizErrStreak = 0;
+let _pendingFallback = false;
+
 let __lastAnimNow = performance.now();
+let __t = 0;
 
 function smoothArray(prev, cur, alpha){
   if(!prev || prev.length !== cur.length){
@@ -368,6 +399,16 @@ function animate(){
   requestAnimationFrame(animate);
   if(!viz || !latestFrame) return;
 
+  // If we had repeated onFrame failures, fall back on the next frame (prevents re-entrant setViz()).
+  if(_pendingFallback){
+    _pendingFallback = false;
+    if(vizName !== "spectrum" && registry.get("spectrum")){
+      vizSel.value = "spectrum";
+      setViz("spectrum");
+    }
+    return;
+  }
+
   const gain = Number(gainEl.value);
   const a60 = Number(vsmoothEl.value);
   const __now = performance.now();
@@ -402,28 +443,50 @@ function animate(){
     lastWaveLR = null;
   }
 
-  const frame = {
-    frameId: latestFrame.frameId,
-    ts: latestFrame.ts,
-    channels: ch,
-    rms: latestFrame.rms,
-    peak: latestFrame.peak,
-    corr: latestFrame.corr,
-    overlay: embed,
-    waveLR: lastWaveLR,
-    spectrum: lastSpectrum,
-    wave: lastWave,
-    gain,
-    samplerate: lastState.samplerate,
-    fftSize: lastState.fft_size,
-  };
+  // Fill stable frame object
+  frame.frameId = latestFrame.frameId;
+  frame.ts = latestFrame.ts;
+  frame.tsMs = (typeof latestFrame.ts === "number") ? latestFrame.ts * 1000 : 0;
+  frame.channels = ch;
+  frame.rms = latestFrame.rms;
+  frame.peak = latestFrame.peak;
+  frame.corr = latestFrame.corr;
+  frame.overlay = embed;
+  frame.waveLR = lastWaveLR;
+  frame.spectrum = lastSpectrum;
+  frame.wave = lastWave;
+  frame.gain = gain;
+  frame.samplerate = lastState.samplerate;
+  frame.fftSize = lastState.fft_size;
+
+  frame.dt = __dt;
+  __t += __dt;
+  frame.t = __t;
+  frame.time.t = __t;
+  frame.time.dt = __dt;
+
+  const dpr = window.devicePixelRatio || 1;
+  frame.dpr = dpr;
+  frame.width = canvas.width|0;
+  frame.height = canvas.height|0;
+  frame.viewport.w = frame.width;
+  frame.viewport.h = frame.height;
+  frame.viewport.dpr = dpr;
 
   if(debug){
     const cSpec0 = checksumArray(lastSpectrum);
     const cWave0 = checksumArray(lastWave);
     const cLR0 = checksumArray(lastWaveLR);
 
-    viz.onFrame(frame);
+    let err = null;
+    try{ viz.onFrame(frame); }catch(e){ err = e; }
+    if(err){
+      console.error(err);
+      recordVizError(err);
+      _vizErrStreak++;
+      if(_vizErrStreak >= 3) _pendingFallback = true;
+      return;
+    }
 
     const cSpec1 = checksumArray(lastSpectrum);
     const cWave1 = checksumArray(lastWave);
@@ -433,8 +496,20 @@ function animate(){
     if(!sameChecksum(cWave0, cWave1)) reportMutation("wave");
     if(!sameChecksum(cLR0, cLR1)) reportMutation("waveLR");
   }else{
-    viz.onFrame(frame);
+    try{
+      viz.onFrame(frame);
+    }catch(e){
+      console.error(e);
+      recordVizError(e);
+      _vizErrStreak++;
+      if(_vizErrStreak >= 3) _pendingFallback = true;
+      return;
+    }
   }
+
+  // Successful frame: reset error streak and clear badge (unless mutation reported).
+  if(_vizErrStreak) _vizErrStreak = 0;
+  if(vizError && !(typeof vizError === "string" && vizError.startsWith("[VizMutation]"))) clearVizError();
 }
 resize();
 animate();

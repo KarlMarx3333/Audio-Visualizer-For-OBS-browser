@@ -328,7 +328,7 @@ export class ParticleSwarmWebGL2 {
       }
     }
 
-    const t = (now - this._t0) * 0.001;
+    const t = (typeof frame?.t === "number") ? frame.t : (now - this._t0) * 0.001;
     const tPhase = t % TIME_WRAP;
 
     // simulate + upload VBO

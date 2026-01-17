@@ -173,15 +173,21 @@ export class FeedbackMirrorWebGL {
     }
 
     try {
-      // dt seconds
-      const ts = (typeof frame?.ts === "number") ? frame.ts : performance.now();
-      let dt = 0.016;
-      if (this._lastTs) dt = (ts - this._lastTs) * 0.001;
-      this._lastTs = ts;
-      if (!isFinite(dt) || dt <= 0) dt = 0.016;
-      if (dt > 0.1) dt = 0.1;
+      // dt seconds (host-owned). Prefer frame.dt; fall back to timestamps for legacy.
+      let dt = (typeof frame?.dt === "number") ? frame.dt : 0;
+      if (!(dt > 0 && isFinite(dt))) {
+        // frame.ts from Python is UNIX seconds; some older code treated it as ms. Normalize to ms here.
+        const tsMs = (typeof frame?.tsMs === "number") ? frame.tsMs
+          : (typeof frame?.ts === "number") ? (frame.ts < 1e10 ? frame.ts * 1000.0 : frame.ts)
+          : performance.now();
+        dt = 0.016;
+        if (this._lastTs) dt = (tsMs - this._lastTs) * 0.001;
+        this._lastTs = tsMs;
+        if (!isFinite(dt) || dt <= 0) dt = 0.016;
+        if (dt > 0.1) dt = 0.1;
+      }
 
-      const tAbs = (performance.now() - this._t0) * 0.001;
+      const tAbs = (typeof frame?.t === "number") ? frame.t : (performance.now() - this._t0) * 0.001;
       const tPhase = tAbs % TIME_WRAP;
 
       // --- Audio features (robust + reactive, no allocations)
