@@ -195,7 +195,8 @@ vec3 pal(float t){
   vec3 b = vec3(0.55, 0.85, 1.00);
   vec3 c = vec3(1.00, 0.35, 0.85);
   vec3 d = vec3(0.20, 0.65, 0.90);
-  return a + b*cos(6.28318*(d*t + c));
+  // Clamp to avoid negative palette values becoming black in RGBA8.
+  return max(vec3(0.0), a + b*cos(6.28318*(d*t + c)));
 }
 
 void main(){
@@ -222,6 +223,9 @@ void main(){
   a = abs(a - seg*0.5);
   p = vec2(cos(a), sin(a)) * r;
 
+  // Center weighting for persistence/injection shaping.
+  float center = 1.0 - smoothstep(0.10, 0.60, r);
+
   // Feedback transform: zoom/rotate + drift
   float zoom = 0.985 - 0.055*u_bass;     // bass "breathes" the tunnel
   float rot  = 0.04*sin(u_time*0.55) + 0.22*(u_treble - 0.5) + 0.10*u_mid;
@@ -242,15 +246,17 @@ void main(){
   q.x /= aspect;
   vec2 uv2 = q*0.5 + 0.5;
 
-  // chromatic micro-shift adds texture/detail
-  vec2 ca = 0.0022 * vec2(sin(u_time*1.20), cos(u_time*1.05)) * (0.15 + 0.85*u_treble);
+  // chromatic micro-shift adds texture/detail (boost near center for stronger "inner fractal")
+  vec2 ca = 0.0022 * vec2(sin(u_time*1.20), cos(u_time*1.05))
+          * (0.15 + 0.85*u_treble)
+          * (1.0 + 1.4*center);
   vec4 pr = texture2D(u_prev, uv2 + ca);
   vec4 pg = texture2D(u_prev, uv2);
   vec4 pb = texture2D(u_prev, uv2 - ca);
   vec4 prev = vec4(pr.r, pg.g, pb.b, (pr.a + pg.a + pb.a) / 3.0);
 
-  // feedback fade (slightly more fade when quiet so it doesn't linger)
-  float fade60 = 0.992;
+  // Center-weighted persistence: keeps more recursion/detail in the middle
+  float fade60 = mix(0.992, 0.996, center);
   float fade = pow(fade60, u_dt * 60.0);
   prev.rgb *= fade;
   prev.a   *= fade;
@@ -277,6 +283,8 @@ void main(){
   wave = pow(wave, 7.0) * exp(-r*2.2) * (0.15 + 0.85*u_bass);
 
   float inj = blob*0.65 + line*0.55 + wave*0.35;
+  // Center-weighted injection: feeds the kaleido attractor where it forms
+  inj *= (1.0 + 1.8*center);
 
   // color is time + angle based
   float colT = 0.15*u_time + a*0.55 + u_treble*0.6;
@@ -286,11 +294,19 @@ void main(){
   float n = (hash(v_uv*u_res + u_time*10.0) - 0.5) * 0.05 * (0.15 + 0.85*u_treble);
 
   // combine
-  float injStrength = 1.2;
+  float injStrength = 1.5;
   vec3 col = prev.rgb + injCol * (inj * injStrength) + vec3(n);
+
+  // Pre-clamp before tone-map so negatives don't collapse to black.
+  col = max(col, vec3(0.0));
 
   // soft tone-map to avoid "white ball" saturation
   col = col / (1.0 + col);
+
+  // Lift only near-black so it can't go fully black-on-black.
+  float luma = max(0.0, dot(col, vec3(0.2126, 0.7152, 0.0722)));
+  float lift = (0.020 + 0.060*u_energy) * (1.0 - smoothstep(0.02, 0.08, luma));
+  col += vec3(lift);
 
   // alpha for OBS overlay:
   // - based on signal strength (injection + previous alpha)
