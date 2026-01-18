@@ -63,6 +63,9 @@ export class MultiPassPipeline {
     this._lastNowMs = performance.now();
     this._tFallback = 0;
     this._lastDt = 1 / 60;
+    this._audioDecay = (opts && Number.isFinite(opts.audioDecay)) ? opts.audioDecay : 0.8;
+    this._audioBoost = (opts && Number.isFinite(opts.audioBoost)) ? opts.audioBoost : 4.5;
+    this._preRender = (opts && typeof opts.preRender === "function") ? opts.preRender : null;
 
     this._audioW = (opts && opts.audioW) ? opts.audioW : 512;
     this._audioTex = gl.createTexture();
@@ -273,7 +276,7 @@ export class MultiPassPipeline {
       }
     }
     const inst = (peak || 0) * g;
-    const decay = Math.exp(-dt / 0.8);
+    const decay = Math.exp(-dt / this._audioDecay);
     this._agcSpec = Math.max(inst, this._agcSpec * decay, 1e-3);
     this._invSpec = 1.0 / (this._agcSpec + 1e-6);
 
@@ -282,7 +285,7 @@ export class MultiPassPipeline {
       if (specLen > 2) {
         const si = 1 + ((i * (specLen - 2) / (N - 1)) | 0);
         const v = (spec[si] || 0) * g * this._invSpec;
-        s = Math.sqrt(Math.max(0, Math.min(1, v * 4.5)));
+        s = Math.sqrt(Math.max(0, Math.min(1, v * this._audioBoost)));
       }
       const b = (s * 255) | 0;
       const o = i * 4;
@@ -322,6 +325,10 @@ export class MultiPassPipeline {
 
     const frameId = Number.isFinite(frame && frame.frameId) ? frame.frameId : (this._frameCounter++);
 
+    if (this._preRender) {
+      this._preRender(frame, this, dt, t);
+    }
+
     if (this._needsAudio) {
       this.updateAudioTex(frame && frame.spectrum, frame && frame.gain);
     }
@@ -355,7 +362,15 @@ export class MultiPassPipeline {
         for (let u = 0; u < pass.uniforms.length; u++) {
           const rec = pass.uniforms[u];
           if (rec.loc === null) continue;
-          if (rec.kind === "value") gl.uniform1f(rec.loc, rec.value);
+          if (rec.kind === "value") {
+            gl.uniform1f(rec.loc, rec.value);
+          } else if (rec.kind === "state") {
+            const v = this[rec.key];
+            gl.uniform1f(rec.loc, Number.isFinite(v) ? v : 0);
+          } else if (rec.kind === "frame") {
+            const v = frame ? frame[rec.key] : 0;
+            gl.uniform1f(rec.loc, Number.isFinite(v) ? v : 0);
+          }
         }
       }
 

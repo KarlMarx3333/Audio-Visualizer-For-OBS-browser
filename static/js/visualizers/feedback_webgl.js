@@ -2,6 +2,8 @@
 // Feedback Mirror / Infinite TV -- WebGL BufferA + Image pipeline with ping-pong feedback.
 // Overlay-friendly alpha preserved in final pass.
 
+import { MultiPassPipeline, TIME_WRAP as PIPE_TIME_WRAP } from "/static/js/webgl/multipass.js";
+
 function clamp01(x) {
   return Math.max(0, Math.min(1, x));
 }
@@ -29,8 +31,6 @@ function bandAvg(spec, sr, nfft, hz0, hz1) {
   return c > 0 ? (sum / c) : 0;
 }
 
-const TIME_WRAP = Math.PI * 2 * 100;
-
 export class FeedbackMirrorWebGL {
   static id = "feedback";
   static name = "Feedback Mirror (WebGL)";
@@ -57,84 +57,6 @@ export class FeedbackMirrorWebGL {
     gl.disable(gl.CULL_FACE);
     gl.disable(gl.BLEND);
 
-    // Fullscreen quad
-    this._vb = gl.createBuffer();
-    gl.bindBuffer(gl.ARRAY_BUFFER, this._vb);
-    gl.bufferData(
-      gl.ARRAY_BUFFER,
-      new Float32Array([
-        -1, -1,
-         1, -1,
-        -1,  1,
-        -1,  1,
-         1, -1,
-         1,  1,
-      ]),
-      gl.STATIC_DRAW
-    );
-
-    // Programs
-    this._progA = this._createProgram(VS, FS_BUFFER_A);
-    this._progI = this._createProgram(VS, FS_IMAGE);
-
-    // Locations (BufferA)
-    this._locA = {
-      a_pos: gl.getAttribLocation(this._progA, "a_pos"),
-      u_prev: gl.getUniformLocation(this._progA, "u_prev"),
-      u_audio: gl.getUniformLocation(this._progA, "u_audio"),
-      u_res: gl.getUniformLocation(this._progA, "u_res"),
-      u_time: gl.getUniformLocation(this._progA, "u_time"),
-      u_dt: gl.getUniformLocation(this._progA, "u_dt"),
-      u_energy: gl.getUniformLocation(this._progA, "u_energy"),
-      u_bass: gl.getUniformLocation(this._progA, "u_bass"),
-      u_mid: gl.getUniformLocation(this._progA, "u_mid"),
-      u_treble: gl.getUniformLocation(this._progA, "u_treble"),
-    };
-
-    // Locations (Image)
-    this._locI = {
-      a_pos: gl.getAttribLocation(this._progI, "a_pos"),
-      u_buf: gl.getUniformLocation(this._progI, "u_buf"),
-    };
-
-    // Ping-pong targets
-    this._w = 0;
-    this._h = 0;
-
-    this._texA = null;
-    this._fbA = null;
-    this._texB = null;
-    this._fbB = null;
-    this._readTex = null;
-    this._readFB = null;
-    this._writeTex = null;
-    this._writeFB = null;
-
-    // Audio texture (spectrum row)
-    this._audioW = 512;
-    this._audioTex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, this._audioTex);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(
-      gl.TEXTURE_2D,
-      0,
-      gl.RGBA,
-      this._audioW,
-      1,
-      0,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      null
-    );
-    gl.bindTexture(gl.TEXTURE_2D, null);
-
-    this._audioPixels = new Uint8Array(this._audioW * 4);
-    this._agcSpec = 1e-3;
-    this._invSpec = 1.0;
-
     // Audio smoothing
     this._energy = 0;
     this._bass = 0;
@@ -142,59 +64,10 @@ export class FeedbackMirrorWebGL {
     this._treble = 0;
     this._smooth = 0.86;
 
-    this._t0 = performance.now();
-    this._lastTs = 0;
-    this._failed = false;
-  }
-
-  onResize(w, h, dpr) {
-    const cw = this.canvas.width | 0;
-    const ch = this.canvas.height | 0;
-    if (cw <= 2 || ch <= 2) return;
-    if (cw === this._w && ch === this._h && this._readTex) return;
-    this._w = cw;
-    this._h = ch;
-    this._recreateTargets(cw, ch);
-  }
-
-  onFrame(frame) {
-    if (this._failed) return;
-
-    const gl = this.gl;
-    const w = this.canvas.width | 0;
-    const h = this.canvas.height | 0;
-    if (w <= 2 || h <= 2) return;
-
-    if (!this._readTex || w !== this._w || h !== this._h) {
-      this._w = w;
-      this._h = h;
-      this._recreateTargets(w, h);
-    }
-
-    try {
-      // dt seconds (host-owned). Prefer frame.dt; fall back to timestamps for legacy.
-      let dt = (typeof frame?.dt === "number") ? frame.dt : 0;
-      if (!(dt > 0 && isFinite(dt))) {
-        // frame.ts from Python is UNIX seconds; some older code treated it as ms. Normalize to ms here.
-        const tsMs = (typeof frame?.tsMs === "number") ? frame.tsMs
-          : (typeof frame?.ts === "number") ? (frame.ts < 1e10 ? frame.ts * 1000.0 : frame.ts)
-          : performance.now();
-        dt = 0.016;
-        if (this._lastTs) dt = (tsMs - this._lastTs) * 0.001;
-        this._lastTs = tsMs;
-        if (!isFinite(dt) || dt <= 0) dt = 0.016;
-        if (dt > 0.1) dt = 0.1;
-      }
-
-      const tAbs = (typeof frame?.t === "number") ? frame.t : (performance.now() - this._t0) * 0.001;
-      const tPhase = tAbs % TIME_WRAP;
-
-      // --- Audio features (robust + reactive, no allocations)
-      const spec = frame?.spectrum;
+    this._preRender = (frame, pipe, dt) => {
+      const spec = frame ? frame.spectrum : null;
       const sr = frame?.samplerate || 48000;
-      const nfft =
-        frame?.fftSize ||
-        (spec && spec.length ? (spec.length - 1) * 2 : 2048);
+      const nfft = frame?.fftSize || (spec && spec.length ? (spec.length - 1) * 2 : 2048);
       const gain = frame?.gain || 1.0;
 
       const rms0 = Array.isArray(frame?.rms) ? (frame.rms[0] || 0) : (frame?.rms || 0);
@@ -214,53 +87,66 @@ export class FeedbackMirrorWebGL {
       this._mid = a * this._mid + (1 - a) * midT;
       this._treble = a * this._treble + (1 - a) * trebleT;
 
-      // Update audio texture (spectrum -> row)
-      this._updateAudioTexture(spec, gain, dt);
+      pipe.stateEnergy = this._energy;
+      pipe.stateBass = this._bass;
+      pipe.stateMid = this._mid;
+      pipe.stateTreble = this._treble;
+    };
 
-      // -------- Pass A: feedback buffer --------
-      gl.bindFramebuffer(gl.FRAMEBUFFER, this._writeFB);
-      gl.viewport(0, 0, w, h);
+    const passSpecs = [
+      {
+        name: "A",
+        target: "texture",
+        feedback: true,
+        fsSrc: FS_BUFFER_A,
+        builtins: { res: true, time: "wrap", dt: true },
+        bindings: [
+          { uniform: "u_prev", kind: "prev", pass: "A", unit: 0 },
+          { uniform: "u_audio", kind: "audio", unit: 1 },
+        ],
+        uniforms: [
+          { uniform: "u_energy", kind: "state", key: "stateEnergy" },
+          { uniform: "u_bass", kind: "state", key: "stateBass" },
+          { uniform: "u_mid", kind: "state", key: "stateMid" },
+          { uniform: "u_treble", kind: "state", key: "stateTreble" },
+        ],
+      },
+      {
+        name: "Image",
+        target: "screen",
+        feedback: false,
+        fsSrc: FS_IMAGE,
+        builtins: { res: true, time: "wrap", dt: true },
+        bindings: [
+          { uniform: "u_buf", kind: "pass", pass: "A", unit: 0 },
+        ],
+      },
+    ];
 
-      gl.useProgram(this._progA);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this._vb);
-      gl.enableVertexAttribArray(this._locA.a_pos);
-      gl.vertexAttribPointer(this._locA.a_pos, 2, gl.FLOAT, false, 0, 0);
+    this._pipeline = new MultiPassPipeline(gl, passSpecs, {
+      timeWrap: PIPE_TIME_WRAP,
+      audioDecay: 0.9,
+      audioBoost: 4.0,
+      preRender: this._preRender,
+    });
 
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this._readTex);
-      gl.uniform1i(this._locA.u_prev, 0);
+    this._failed = false;
 
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D, this._audioTex);
-      gl.uniform1i(this._locA.u_audio, 1);
+    this.onResize(canvas.width, canvas.height, window.devicePixelRatio || 1);
+  }
 
-      gl.uniform2f(this._locA.u_res, w, h);
-      gl.uniform1f(this._locA.u_time, tPhase);
-      gl.uniform1f(this._locA.u_dt, dt);
-      gl.uniform1f(this._locA.u_energy, this._energy);
-      gl.uniform1f(this._locA.u_bass, this._bass);
-      gl.uniform1f(this._locA.u_mid, this._mid);
-      gl.uniform1f(this._locA.u_treble, this._treble);
+  onResize(w, h, dpr) {
+    const cw = this.canvas.width | 0;
+    const ch = this.canvas.height | 0;
+    if (cw <= 2 || ch <= 2) return;
+    this._pipeline.resize(cw, ch);
+  }
 
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
+  onFrame(frame) {
+    if (this._failed) return;
 
-      // -------- Pass I: final image --------
-      gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-      gl.viewport(0, 0, w, h);
-
-      gl.useProgram(this._progI);
-      gl.bindBuffer(gl.ARRAY_BUFFER, this._vb);
-      gl.enableVertexAttribArray(this._locI.a_pos);
-      gl.vertexAttribPointer(this._locI.a_pos, 2, gl.FLOAT, false, 0, 0);
-
-      gl.activeTexture(gl.TEXTURE0);
-      gl.bindTexture(gl.TEXTURE_2D, this._writeTex);
-      gl.uniform1i(this._locI.u_buf, 0);
-
-      gl.drawArrays(gl.TRIANGLES, 0, 6);
-
-      // Swap
-      this._swap();
+    try {
+      this._pipeline.render(frame);
     } catch (err) {
       this._failed = true;
       console.error("[FeedbackMirrorWebGL] render failed:", err);
@@ -269,189 +155,11 @@ export class FeedbackMirrorWebGL {
   }
 
   destroy() {
-    const gl = this.gl;
-    if (!gl) return;
-    try {
-      gl.deleteProgram(this._progA);
-      gl.deleteProgram(this._progI);
-      gl.deleteBuffer(this._vb);
-
-      if (this._audioTex) gl.deleteTexture(this._audioTex);
-
-      this._deleteTarget(this._texA, this._fbA);
-      this._deleteTarget(this._texB, this._fbB);
-    } catch (_) {}
-  }
-
-  // ----------------- internals -----------------
-
-  _updateAudioTexture(spec, gain, dt) {
-    const gl = this.gl;
-    const N = this._audioW;
-    const px = this._audioPixels;
-
-    // AGC from spectrum peak (fast, stable)
-    let peak = 0;
-    if (spec && spec.length > 8) {
-      for (let i = 1; i < spec.length; i += 8) {
-        const v = spec[i];
-        if (v > peak) peak = v;
-      }
-    }
-    const inst = (peak || 0) * (gain || 1.0);
-    const decay = Math.exp(-dt / 0.9);
-    this._agcSpec = Math.max(inst, this._agcSpec * decay, 1e-3);
-    this._invSpec = 1.0 / (this._agcSpec + 1e-6);
-
-    const specLen = spec && spec.length ? spec.length : 0;
-    for (let i = 0; i < N; i++) {
-      let s = 0;
-      if (specLen > 2) {
-        const si = 1 + ((i * (specLen - 2) / (N - 1)) | 0);
-        const v = (spec[si] || 0) * (gain || 1.0) * this._invSpec;
-        s = Math.sqrt(Math.max(0, Math.min(1, v * 4.0)));
-      }
-      const b = (s * 255) | 0;
-      const o = i * 4;
-      px[o + 0] = b;
-      px[o + 1] = b;
-      px[o + 2] = b;
-      px[o + 3] = 255;
-    }
-
-    gl.bindTexture(gl.TEXTURE_2D, this._audioTex);
-    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
-    gl.bindTexture(gl.TEXTURE_2D, null);
-  }
-
-  _swap() {
-    const rt = this._readTex;
-    const rf = this._readFB;
-    this._readTex = this._writeTex;
-    this._readFB = this._writeFB;
-    this._writeTex = rt;
-    this._writeFB = rf;
-  }
-
-  _recreateTargets(w, h) {
-    const gl = this.gl;
-
-    this._deleteTarget(this._texA, this._fbA);
-    this._deleteTarget(this._texB, this._fbB);
-
-    const A = this._createTarget(w, h);
-    const B = this._createTarget(w, h);
-
-    this._texA = A.tex;
-    this._fbA = A.fb;
-    this._texB = B.tex;
-    this._fbB = B.fb;
-
-    // Init both buffers to transparent so feedback starts clean
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbA);
-    gl.viewport(0, 0, w, h);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, this._fbB);
-    gl.viewport(0, 0, w, h);
-    gl.clearColor(0, 0, 0, 0);
-    gl.clear(gl.COLOR_BUFFER_BIT);
-
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-    this._readTex = this._texA;
-    this._readFB = this._fbA;
-    this._writeTex = this._texB;
-    this._writeFB = this._fbB;
-  }
-
-  _createTarget(w, h) {
-    const gl = this.gl;
-
-    const tex = gl.createTexture();
-    gl.bindTexture(gl.TEXTURE_2D, tex);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
-    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
-    gl.texImage2D(
-      gl.TEXTURE_2D,
-      0,
-      gl.RGBA,
-      w,
-      h,
-      0,
-      gl.RGBA,
-      gl.UNSIGNED_BYTE,
-      null
-    );
-
-    const fb = gl.createFramebuffer();
-    gl.bindFramebuffer(gl.FRAMEBUFFER, fb);
-    gl.framebufferTexture2D(
-      gl.FRAMEBUFFER,
-      gl.COLOR_ATTACHMENT0,
-      gl.TEXTURE_2D,
-      tex,
-      0
-    );
-
-    gl.bindTexture(gl.TEXTURE_2D, null);
-    gl.bindFramebuffer(gl.FRAMEBUFFER, null);
-
-    return { tex, fb };
-  }
-
-  _deleteTarget(tex, fb) {
-    const gl = this.gl;
-    if (!gl) return;
-    if (fb) gl.deleteFramebuffer(fb);
-    if (tex) gl.deleteTexture(tex);
-  }
-
-  _createProgram(vsSrc, fsSrc) {
-    const gl = this.gl;
-    const vs = this._compile(gl.VERTEX_SHADER, vsSrc);
-    const fs = this._compile(gl.FRAGMENT_SHADER, fsSrc);
-    const p = gl.createProgram();
-    gl.attachShader(p, vs);
-    gl.attachShader(p, fs);
-    gl.linkProgram(p);
-    gl.deleteShader(vs);
-    gl.deleteShader(fs);
-    if (!gl.getProgramParameter(p, gl.LINK_STATUS)) {
-      const log = gl.getProgramInfoLog(p) || "unknown";
-      gl.deleteProgram(p);
-      throw new Error("Program link failed: " + log);
-    }
-    return p;
-  }
-
-  _compile(type, src) {
-    const gl = this.gl;
-    const s = gl.createShader(type);
-    gl.shaderSource(s, src);
-    gl.compileShader(s);
-    if (!gl.getShaderParameter(s, gl.COMPILE_STATUS)) {
-      const log = gl.getShaderInfoLog(s) || "unknown";
-      gl.deleteShader(s);
-      throw new Error("Shader compile failed: " + log);
-    }
-    return s;
+    if (this._pipeline) this._pipeline.destroy();
   }
 }
 
 // ----------------- Shaders -----------------
-
-const VS = `
-attribute vec2 a_pos;
-varying vec2 v_uv;
-void main(){
-  v_uv = a_pos * 0.5 + 0.5;
-  gl_Position = vec4(a_pos, 0.0, 1.0);
-}
-`;
 
 const FS_IMAGE = `
 precision mediump float;
