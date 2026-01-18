@@ -472,9 +472,23 @@ vec3 palette(float t){
   return a + b*cos(6.28318*(d*t + c));
 }
 
-float band(float x, float w){
-  float d = abs(fract(x) - 0.5) * 2.0;
-  return 1.0 - smoothstep(w, 1.0, d);
+// Curvy 2D centerline in "world Z" (cheap pseudo-random path)
+vec2 position2(float z, float amp){
+  vec2 p = vec2(
+    sin(z * 0.10) * 1.0 + sin(cos(z * 0.031) * 4.0) * 1.0 + sin(sin(z * 0.0091) * 3.0) * 3.0,
+    cos(z * 0.10) * 1.0 + cos(cos(z * 0.031) * 4.0) * 1.0 + cos(sin(z * 0.0091) * 3.0) * 3.0
+  );
+  return p * amp;
+}
+
+// Regular N-gon boundary radius (circumradius R) for a given angle theta.
+float ngonRadius(float theta, float R, float N){
+  float tau = 6.28318530718;
+  float k = tau / max(N, 3.0);
+  // fold theta into [-k/2, k/2]
+  float t = abs(mod(theta + 0.5*k, k) - 0.5*k);
+  float c = cos(3.14159265 / max(N, 3.0));
+  return R * c / max(0.12, cos(t)); // clamp denominator to avoid infinities
 }
 
 void main(){
@@ -483,66 +497,112 @@ void main(){
   vec2 p = v_uv * 2.0 - 1.0;
   p.x *= aspect;
 
-  float r = length(p);
-  float a = atan(p.y, p.x);
   float tau = 6.28318530718;
+  float camZ = u_travel * 10.0; // SLOWER motion (visual speed). Raise if you want faster.
 
-  float z = u_travel;
+  // Bend amplitude from mids, with a little energy so it wakes up on sound
+  float bendAmp = 0.06 + 0.10*u_mid + 0.06*u_energy;
+  vec2 cam = position2(camZ, bendAmp);
 
-  float inv = 1.0 / (r + 0.28);
-  float depth = clamp(inv * 0.55, 0.0, 6.0);
+  // Approx "camera sideways velocity" (used to sell steering)
+  vec2 camF = position2(camZ + 1.0, bendAmp);
+  vec2 camB = position2(camZ - 1.0, bendAmp);
+  vec2 dcamdz = (camF - camB) * 0.5;
+  vec2 d2camdz2 = (camF - cam * 2.0 + camB);
+  vec2 steer  = dcamdz * (0.55 + 1.10*u_energy); // used for slip/steer feel
 
-  float twist = 0.35*sin(u_time*0.35) + 0.65*u_treble + 0.25*u_mid;
-  a += twist * depth * 0.12;
+  vec3 f = vec3(0.0);
+  float aAccum = 0.0;
 
-  float u = fract(a / tau);
-  float v = z*0.18 + depth*1.25;
+  // Portal stack count: keep it sane for OBS
+  const int STEPS = 64;
+  // How deep we compute "expensive" polygon + kaleido.
+  // Beyond this it’s tiny on screen, so we draw cheap circles.
+  const float HEAVY_Z = 26.0;
 
-  u += 0.035*sin(v*0.7 + u_time*0.7) + 0.025*sin(u_time*0.6 + u_mid*3.0);
-  v += 0.12*sin(u*12.0 + u_time*0.3) * (0.15 + 0.85*u_bass);
+  float midScale = (2.8 + 2.2*u_mid);
+  float slip     = (0.22 + 0.18*u_bass);
 
-  float rings  = band(v*1.25, 0.18);
-  float spokes = band(u*24.0 + v*0.08, 0.24);
-  float streak = pow(band(u*70.0 + v*0.12, 0.10), 2.0);
+  for(int j = 1; j <= STEPS; j++){
+    float i = float(j);
+    float realZ = floor(camZ) + i;
+    float screenZ = realZ - camZ; // 1..N
+    float invZ = 1.0 / screenZ;
 
-  vec2 sp = vec2(u*85.0, v*22.0);
-  vec2 id = floor(sp);
-  vec2 gv = fract(sp) - 0.5;
-  float rnd = hash(id);
-  float star = smoothstep(0.06, 0.0, length(gv));
-  star *= smoothstep(0.92, 0.995, rnd);
-  star *= (0.25 + 0.75*u_treble);
+    // Weight falls with depth
+    float wZ = 0.075 * invZ / (0.55 + 0.06*screenZ);
 
-  float tunnelMask = smoothstep(1.35, 0.05, r);
+    // Projected portal radius (bigger when closer)
+    float R = (0.82 + 0.10*sin(realZ*0.07 + u_time*0.35)) * (1.0 + 0.10*u_bass);
+    float rPortal = R * invZ;
 
-  float inten =
-    (rings*0.85 + spokes*0.75 + streak*1.25 + star*1.10)
-    * (0.35 + 1.80*u_energy)
-    * (0.55 + 0.28*depth);
+    // Centerline projection: use a 2nd-order Taylor approximation of position2()
+    // so portal centers stay aligned with the camera path without per-step trig.
+    float dz = (realZ - camZ);
+    vec2 rel = dcamdz * dz + 0.5 * d2camdz2 * (dz * dz);
+    vec2 c = rel * (midScale * invZ) - steer * slip;
 
-  float centerGlow = exp(-r*r*3.0) * (0.10 + 0.70*u_energy);
+    vec2 q = p - c;
+    float dist = length(q);
 
-  vec3 base = palette(v*0.08 + u_time*0.06 + u*0.9);
-  vec3 col = base * inten;
+    // Ring thickness (bass thickens, depth thins)
+    float eps = (0.010 + 0.016*u_bass) * (0.60 + 0.65 / (0.35 + screenZ));
 
-  col += vec3(0.25, 0.85, 1.0) * streak * (0.10 + 0.60*u_treble);
-  col += vec3(1.0, 0.25, 0.85) * rings * (0.06 + 0.28*u_bass);
-  col += base * centerGlow;
+    // FAR PORTALS: cheap circle rings (skip atan/polygon/kaleido)
+    if(screenZ > HEAVY_Z){
+      float d = abs(dist - rPortal);
+      float ring = 1.0 / (d + eps*1.25);
+      // cheap color (3 sins like the shadertoy style, faster than palette())
+      vec3 base = 0.5 + 0.5 * sin(vec3(0.07, 0.10, 0.08) * realZ + vec3(0.0, 2.1, 4.2));
+      vec3 col = base * ring * wZ;
+      f += col;
+      aAccum += (ring * wZ) * 0.9;
+      continue;
+    }
 
-  float n = (hash(v_uv*u_res + u_time*10.0) - 0.5) * 0.04 * (0.20 + 0.80*u_treble);
-  col += vec3(n);
+    // NEAR PORTALS: polygon morph + mild kaleido
+    float ang  = atan(q.y, q.x);
+    // Ping-pong sides: 3 -> circle -> 3, with quantized low-end and smooth circle end.
+    float t = fract(realZ*0.030 + u_time*0.06 + 0.08*u_energy);
+    float pp = 1.0 - abs(2.0 * t - 1.0);
+    float Nmax = 24.0;
+    float Nfloat = mix(3.0, Nmax, pp);
+    float Nq = floor(Nfloat + 0.5);
+    float qMix = step(8.0, Nfloat);
+    float N = mix(Nq, Nfloat, qMix);
 
+    float rb = ngonRadius(ang, rPortal, N);
+    float d = abs(dist - rb);
+    float ring = 1.0 / (d + eps);
+
+    // Subtle interior kaleido-ish modulation (kept stable, not time-multiplying position)
+    float foldN = mix(4.0, 10.0, clamp(u_energy + 0.30*u_treble, 0.0, 1.0)); // cheaper
+    float k = tau / foldN;
+    float af = abs(mod(ang + 0.5*k, k) - 0.5*k);
+    float kale = 1.0 - smoothstep(0.00, 0.08, af / k);
+    kale *= smoothstep(rPortal*0.95, rPortal*0.25, dist); // mostly inside portal
+    kale *= (0.10 + 0.45*u_treble);
+
+    vec3 base = 0.5 + 0.5 * sin(vec3(0.07, 0.10, 0.08) * realZ + vec3(0.0, 2.1, 4.2));
+    vec3 col = base * ring * wZ;
+    col += base * kale * wZ * 2.2;
+
+    f += col;
+    aAccum += (ring * wZ) * 0.9;
+  }
+
+  // Mild feedback texture seasoning (kept subtle)
   vec3 fb = texture2D(u_buf, v_uv).rgb;
-  col += fb * 0.02;
+  f += fb * (0.015 + 0.03*u_energy);
 
-  col = col / (1.0 + col);
+  // Tonemap + vignette + overlay-safe alpha
+  f = f / (1.0 + f);
 
-  float vig = smoothstep(1.60, 0.08, r);
-  col *= tunnelMask * vig;
+  float r = length(p);
+  float vig = smoothstep(1.65, 0.10, r);
+  f *= vig;
 
-  float alpha = clamp((inten * 0.85 + centerGlow * 0.55) * tunnelMask, 0.0, 1.0);
-  alpha *= vig;
-
-  gl_FragColor = vec4(col, alpha);
+  float alpha = clamp(aAccum * (0.35 + 0.85*u_energy), 0.0, 1.0) * vig;
+  gl_FragColor = vec4(f, alpha);
 }
 `;
