@@ -242,7 +242,8 @@ export class PlasmaWebGL {
       gl.uniform1f(this._locI.u_treble, this._treble);
       gl.uniform1i(this._locI.u_overlay, overlay ? 1 : 0);
       gl.uniform1f(this._locI.u_overlayBoost, overlay ? 2.5 : 1.0);
-      gl.uniform1f(this._locI.u_viewScale, overlay ? 1.18 : 1.0);
+      const viewScale = overlay ? 1.18 : 1.0;
+      gl.uniform1f(this._locI.u_viewScale, viewScale * 1.10);
 
       gl.drawArrays(gl.TRIANGLES, 0, 6);
 
