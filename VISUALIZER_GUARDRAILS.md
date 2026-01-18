@@ -116,6 +116,23 @@ A compact, practical list of the stuff we should not do in our visualizers (Canv
 
 ---
 
+## Phase Wrapping Gotcha (Discontinuous Wrap Snaps)
+
+- DO NOT multiply a wrapped phase by a non-integer factor in the shader (or anywhere).
+  - Example bug pattern: `u_mid_phase` is wrapped to `[0..TAU)` on CPU, then shader uses `u_mid_phase * 0.85`.
+  - When `u_mid_phase` wraps `TAU -> 0`, the multiplied term jumps by `0.85*TAU` (NOT a full `TAU`), causing a visible snap.
+- DO NOT assume "wrapping is invisible" just because it is a phase. Wrapping is only seamless when the value appears inside `sin/cos` without scaling that breaks the period.
+- DO split phases when you need different scalings:
+  - GOOD: maintain `midPhaseWarp += dt * mid * 0.85` (wrapped), `midPhaseShape += dt * mid * 0.95` (wrapped), and pass both to the shader.
+  - BAD: maintain one wrapped `midPhase` and multiply it by `0.85/0.95` downstream.
+- DO add debug-only logging for wrap discontinuities:
+  - Detect and log `phase_jump` (large delta in one frame) and `wrap` events, even when values are finite.
+  - "No NaN/Inf" is not enough -- snaps can be fully finite.
+
+Lesson learned (in one line): The snap was not NaN/Inf -- it was a mathematically guaranteed discontinuity from scaling a wrapped phase; the right debugging move was "log finite jumps" (phase_jump), not just non-finite checks.
+
+---
+
 ## Complexity Traps
 
 - DO NOT add UI knobs/modes unless required. Most visualizers should have a strong default.
