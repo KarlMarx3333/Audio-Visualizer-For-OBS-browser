@@ -194,7 +194,7 @@ export class TunnelWarpWebGL {
       this._mid    = a * this._mid    + (1 - a) * logNorm(midRaw,  140);
       this._treble = a * this._treble + (1 - a) * logNorm(trbRaw,  160);
 
-      const speed = 0.55 + 2.6 * this._bass + 0.6 * this._energy;
+      const speed = 0.55 + 1.4 * this._bass + 0.3 * this._energy;
       this._travel = Number.isFinite(this._travel) ? this._travel : 0;
       this._travel += dt * speed;
       if (this._travel > 1e6) this._travel -= 1e6;
@@ -488,7 +488,7 @@ float ngonRadius(float theta, float R, float N){
   // fold theta into [-k/2, k/2]
   float t = abs(mod(theta + 0.5*k, k) - 0.5*k);
   float c = cos(3.14159265 / max(N, 3.0));
-  return R * c / max(0.12, cos(t)); // clamp denominator to avoid infinities
+  return R * c / max(0.25, cos(t)); // clamp denominator to avoid infinities
 }
 
 void main(){
@@ -496,12 +496,14 @@ void main(){
 
   vec2 p = v_uv * 2.0 - 1.0;
   p.x *= aspect;
+  float px = 2.0 / min(u_res.x, u_res.y); // ~1px in p-space, keeps far rings visible.
 
   float tau = 6.28318530718;
-  float camZ = u_travel * 10.0; // SLOWER motion (visual speed). Raise if you want faster.
+  float camZ = u_travel * 7.0; // SLOWER motion (visual speed). Raise if you want faster.
 
   // Bend amplitude from mids, with a little energy so it wakes up on sound
-  float bendAmp = 0.06 + 0.10*u_mid + 0.06*u_energy;
+  float bendAmp = (0.06 + 0.10*u_mid + 0.06*u_energy) * 2.4;
+  bendAmp *= (1.0 + 0.25*sin(u_time*0.35));
   vec2 cam = position2(camZ, bendAmp);
 
   // Approx "camera sideways velocity" (used to sell steering)
@@ -516,21 +518,28 @@ void main(){
 
   // Portal stack count: keep it sane for OBS
   const int STEPS = 64;
-  // How deep we compute "expensive" polygon + kaleido.
-  // Beyond this it’s tiny on screen, so we draw cheap circles.
-  const float HEAVY_Z = 26.0;
+  const float ringCap = 60.0;
+  // Portal spacing (slices are spaced by this factor)
+  float spacing = 2.0;
+  float baseZ = floor(camZ / spacing) * spacing;
 
   float midScale = (2.8 + 2.2*u_mid);
   float slip     = (0.22 + 0.18*u_bass);
 
   for(int j = 1; j <= STEPS; j++){
     float i = float(j);
-    float realZ = floor(camZ) + i;
+    // Spacing math: place portals at multiples of spacing relative to the camera.
+    float realZ = baseZ + i * spacing;
     float screenZ = realZ - camZ; // 1..N
     float invZ = 1.0 / screenZ;
 
-    // Weight falls with depth
-    float wZ = 0.075 * invZ / (0.55 + 0.06*screenZ);
+    // Weight falls with depth (gentler falloff so far portals stay visible).
+    float wZ = 0.075 * invZ / (0.55 + 0.03*screenZ);
+
+    // Depth brightness rebalance: dim near, boost far (keeps perspective, improves readability).
+    float nearDim = mix(0.55, 1.0, smoothstep(6.0, 18.0, screenZ));
+    float farBoost = mix(1.0, 2.2, smoothstep(18.0, 60.0, screenZ));
+    float zGain = nearDim * farBoost;
 
     // Projected portal radius (bigger when closer)
     float R = (0.82 + 0.10*sin(realZ*0.07 + u_time*0.35)) * (1.0 + 0.10*u_bass);
@@ -547,48 +556,54 @@ void main(){
 
     // Ring thickness (bass thickens, depth thins)
     float eps = (0.010 + 0.016*u_bass) * (0.60 + 0.65 / (0.35 + screenZ));
+    eps = max(eps, px * 0.9); // minimum ring thickness to avoid sub-pixel loss.
 
     // FAR PORTALS: cheap circle rings (skip atan/polygon/kaleido)
-    if(screenZ > HEAVY_Z){
+    if(rPortal < 0.03){
       float d = abs(dist - rPortal);
       float ring = 1.0 / (d + eps*1.25);
+      ring = min(ring, ringCap);
       // cheap color (3 sins like the shadertoy style, faster than palette())
       vec3 base = 0.5 + 0.5 * sin(vec3(0.07, 0.10, 0.08) * realZ + vec3(0.0, 2.1, 4.2));
-      vec3 col = base * ring * wZ;
+      vec3 col = base * ring * wZ * zGain;
       f += col;
-      aAccum += (ring * wZ) * 0.9;
+      aAccum += (ring * wZ) * 0.9 * zGain;
       continue;
     }
 
     // NEAR PORTALS: polygon morph + mild kaleido
     float ang  = atan(q.y, q.x);
-    // Ping-pong sides: 3 -> circle -> 3, with quantized low-end and smooth circle end.
-    float t = fract(realZ*0.030 + u_time*0.06 + 0.08*u_energy);
-    float pp = 1.0 - abs(2.0 * t - 1.0);
-    float Nmax = 24.0;
-    float Nfloat = mix(3.0, Nmax, pp);
-    float Nq = floor(Nfloat + 0.5);
-    float qMix = step(8.0, Nfloat);
-    float N = mix(Nq, Nfloat, qMix);
+    // Deterministic sides: 3 -> 4 -> 5 -> 6 -> circle -> 6 -> 5 -> 4 -> 3.
+    float t = fract(realZ*0.028 + u_time*0.05);
+    float pp = 1.0 - abs(2.0 * t - 1.0); // 0->1->0 ping-pong
+    float step = floor(pp * 4.0);
+    float sidesInt = 3.0 + min(step, 3.0);
+    float circleZone = smoothstep(0.92, 0.98, pp);
+    float N = mix(sidesInt, 28.0, circleZone);
 
     float rb = ngonRadius(ang, rPortal, N);
     float d = abs(dist - rb);
     float ring = 1.0 / (d + eps);
+    ring = min(ring, ringCap);
 
     // Subtle interior kaleido-ish modulation (kept stable, not time-multiplying position)
-    float foldN = mix(4.0, 10.0, clamp(u_energy + 0.30*u_treble, 0.0, 1.0)); // cheaper
+    float foldN = mix(3.0, 8.0, clamp(u_energy + 0.30*u_treble, 0.0, 1.0)); // cheaper
     float k = tau / foldN;
     float af = abs(mod(ang + 0.5*k, k) - 0.5*k);
-    float kale = 1.0 - smoothstep(0.00, 0.08, af / k);
-    kale *= smoothstep(rPortal*0.95, rPortal*0.25, dist); // mostly inside portal
-    kale *= (0.10 + 0.45*u_treble);
+    float kale = 1.0 - smoothstep(0.00, 0.12, af / k);
+    // Wall-only mask to avoid center spokes/grid lines.
+    float wallMask = smoothstep(rPortal*0.55, rPortal*0.85, dist)
+      * (1.0 - smoothstep(rPortal*0.90, rPortal*1.02, dist));
+    kale *= wallMask;
+    kale *= (0.10 + 0.35*u_treble);
 
     vec3 base = 0.5 + 0.5 * sin(vec3(0.07, 0.10, 0.08) * realZ + vec3(0.0, 2.1, 4.2));
     vec3 col = base * ring * wZ;
     col += base * kale * wZ * 2.2;
+    col *= zGain;
 
     f += col;
-    aAccum += (ring * wZ) * 0.9;
+    aAccum += (ring * wZ) * 0.9 * zGain;
   }
 
   // Mild feedback texture seasoning (kept subtle)
