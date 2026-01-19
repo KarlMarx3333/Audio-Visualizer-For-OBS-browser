@@ -10,6 +10,7 @@ export class SafeCanvas2D {
     this._cssW = 0;
     this._cssH = 0;
     this._bg = "rgba(8, 12, 18, 0.9)";
+    this._bgOverlay = "rgba(0, 0, 0, 0)";
     this._waveColor = "rgba(120, 220, 255, 0.95)";
     this._barColor = "rgba(140, 255, 210, 0.65)";
     this._label = "SAFE MODE";
@@ -44,7 +45,7 @@ export class SafeCanvas2D {
     if (!(w > 0 && h > 0)) return;
 
     ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
-    ctx.fillStyle = this._bg;
+    ctx.fillStyle = (frame && frame.overlay) ? this._bgOverlay : this._bg;
     ctx.fillRect(0, 0, w, h);
 
     const spectrum = frame && frame.spectrum;

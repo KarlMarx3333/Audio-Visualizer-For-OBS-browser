@@ -154,6 +154,15 @@ function createRenderTarget(gl, w, h) {
   return { tex, fbo, w, h, internalFormat, format, type, filter };
 }
 
+function clearRenderTarget(gl, rt) {
+  if (!rt || !rt.fbo) return;
+  gl.bindFramebuffer(gl.FRAMEBUFFER, rt.fbo);
+  gl.viewport(0, 0, rt.w, rt.h);
+  gl.clearColor(0, 0, 0, 0);
+  gl.clear(gl.COLOR_BUFFER_BIT);
+  gl.bindFramebuffer(gl.FRAMEBUFFER, null);
+}
+
 function deleteRenderTarget(gl, rt) {
   if (!rt) return;
   if (rt.fbo) gl.deleteFramebuffer(rt.fbo);
@@ -274,7 +283,7 @@ export class MultiPassWebGL2 {
     if (!Object.prototype.hasOwnProperty.call(this._builtins, "mouse")) {
       this._builtins.mouse = null;
     }
-    this._resizeEps = (opts && Number.isFinite(opts.resizeEps)) ? opts.resizeEps : 1;
+    this._resizeEps = (opts && Number.isFinite(opts.resizeEps)) ? opts.resizeEps : 0;
     this._passes = [];
     this._passMap = new Map();
     this._frameCounter = 0;
@@ -632,9 +641,14 @@ export class MultiPassWebGL2 {
       if (pass.feedback) {
         pass.rtA = createRenderTarget(gl, w, h);
         pass.rtB = createRenderTarget(gl, w, h);
+        clearRenderTarget(gl, pass.rtA);
+        clearRenderTarget(gl, pass.rtB);
         pass.flip = 0;
+        pass.outputTex = pass.rtA.tex;
       } else {
         pass.rt = createRenderTarget(gl, w, h);
+        clearRenderTarget(gl, pass.rt);
+        pass.outputTex = pass.rt.tex;
       }
       pass.w = w;
       pass.h = h;
