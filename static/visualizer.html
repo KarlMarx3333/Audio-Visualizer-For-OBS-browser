@@ -17,6 +17,28 @@
     #canvas { display: block; background: transparent; }
     #meta { font-size: 12px; color: #9fb0c8; display:flex; gap:12px; align-items:center; flex-wrap:wrap;}
     #meta b { color: #e6eefc; }
+    #vizErrorPanel {
+      position: fixed;
+      top: 12px;
+      right: 12px;
+      z-index: 10000;
+      max-width: min(520px, 95vw);
+      max-height: 80vh;
+      overflow: auto;
+      background: rgba(16, 20, 28, 0.94);
+      color: #e9f0ff;
+      border: 1px solid rgba(255, 100, 100, 0.6);
+      border-left: 4px solid #ff6b6b;
+      border-radius: 8px;
+      padding: 10px 12px;
+      font: 12px/1.4 ui-monospace, SFMono-Regular, Menlo, Consolas, "Liberation Mono", monospace;
+      display: none;
+    }
+    #vizErrorPanel.visible { display: block; }
+    #vizErrorPanel .title { font-weight: 700; margin-bottom: 6px; color: #ffd7d7; }
+    #vizErrorPanel .label { display: block; margin-top: 6px; font-size: 11px; letter-spacing: 0.04em; text-transform: uppercase; color: #9fb0c8; }
+    #vizErrorPanel pre { margin: 4px 0 0; white-space: pre-wrap; }
+    #vizErrorPanel .switch { margin-top: 8px; color: #ffe2a8; font-weight: 600; }
   </style>
 </head>
 <body>
@@ -47,10 +69,24 @@
       <canvas id="canvas"></canvas>
     </div>
   </div>
+  <div id="vizErrorPanel" role="status" aria-live="polite">
+    <div class="title">Visualizer Error</div>
+    <div class="label">Visualizer</div>
+    <div id="vizErrorViz"></div>
+    <div class="label">Message</div>
+    <pre id="vizErrorMsg"></pre>
+    <div class="label" id="vizErrorStackLabel">Stack</div>
+    <pre id="vizErrorStack"></pre>
+    <div class="label">Time</div>
+    <div id="vizErrorTime"></div>
+    <div class="switch" id="vizErrorSwitch">Switched to Safe Mode</div>
+  </div>
 
 <script type="module">
 import { connectAudioWS } from "/static/js/ws_client.js";
 import { registry, createVisualizer } from "/static/js/visualizers/registry.js";
+
+const SAFE_VIZ_ID = "safe_canvas2d";
 
 const qs = new URLSearchParams(location.search);
 const embed = qs.get("embed") === "1";
@@ -89,10 +125,17 @@ const vizSel = document.getElementById("vizSel");
 const gainEl = document.getElementById("gain");
 const vsmoothEl = document.getElementById("vsmooth");
 const meta = document.getElementById("meta");
+const vizErrorPanel = document.getElementById("vizErrorPanel");
+const vizErrorViz = document.getElementById("vizErrorViz");
+const vizErrorMsg = document.getElementById("vizErrorMsg");
+const vizErrorStack = document.getElementById("vizErrorStack");
+const vizErrorStackLabel = document.getElementById("vizErrorStackLabel");
+const vizErrorTime = document.getElementById("vizErrorTime");
+const vizErrorSwitch = document.getElementById("vizErrorSwitch");
 
 function currentVizFromPath(){
   const parts = location.pathname.split("/");
-  const name = parts[parts.length-1] || "spectrum";
+  const name = parts[parts.length-1] || SAFE_VIZ_ID;
   return name;
 }
 
@@ -128,7 +171,7 @@ function resize(){
   canvas.style.height = `${cssH}px`;
   canvas.width = Math.max(2, Math.floor(cssW * dpr));
   canvas.height = Math.max(2, Math.floor(cssH * dpr));
-  if(viz && viz.onResize) viz.onResize(canvas.width, canvas.height, dpr);
+  if(viz && viz.onResize) viz.onResize(cssW, cssH, dpr);
 }
 window.addEventListener("resize", resize);
 document.getElementById("fit").addEventListener("click", resize);
@@ -139,8 +182,8 @@ for(const v of registry.list()){
   vizSel.appendChild(new Option(v.name + " ("+v.renderer+")", v.id));
 }
 
-let vizName = fixedViz || "spectrum";
-if(!registry.get(vizName)) vizName = "spectrum";
+let vizName = fixedViz || SAFE_VIZ_ID;
+if(!registry.get(vizName)) vizName = SAFE_VIZ_ID;
 
 let currentRenderer = (registry.get(vizName)?.renderer ?? "2d");
 
@@ -200,11 +243,49 @@ function vizDebugLog(msg, data){
 window.__vizDebugLog = debug ? vizDebugLog : null;
 window.__vizMilkdropMask = debug ? mdMask : 0;
 
-function errorText(err){
+let vizErrorInfo = null;
+
+function errorMessage(err){
   if(!err) return "";
   if(typeof err === "string") return err;
   if(err.message) return err.message;
   return String(err);
+}
+
+function errorStack(err){
+  if(!err || typeof err === "string") return "";
+  if(err.stack) return String(err.stack);
+  return "";
+}
+
+function switchLine(state){
+  if(state === "switched") return "Switched to Safe Mode";
+  if(state === "already") return "Switched to Safe Mode (already active)";
+  if(state === "failed") return "Switched to Safe Mode (failed)";
+  if(state === "not-attempted") return "Switched to Safe Mode (not attempted)";
+  return "Switched to Safe Mode";
+}
+
+function updateErrorPanel(){
+  if(!vizErrorPanel) return;
+  if(!vizErrorInfo){
+    vizErrorPanel.classList.remove("visible");
+    return;
+  }
+  vizErrorPanel.classList.add("visible");
+  vizErrorViz.textContent = `${vizErrorInfo.name} (${vizErrorInfo.id})`;
+  vizErrorMsg.textContent = vizErrorInfo.message || "(no message)";
+  if(vizErrorInfo.stack){
+    vizErrorStack.textContent = vizErrorInfo.stack;
+    vizErrorStack.style.display = "block";
+    vizErrorStackLabel.style.display = "block";
+  }else{
+    vizErrorStack.textContent = "";
+    vizErrorStack.style.display = "none";
+    vizErrorStackLabel.style.display = "none";
+  }
+  vizErrorTime.textContent = vizErrorInfo.time;
+  vizErrorSwitch.textContent = switchLine(vizErrorInfo.switchState);
 }
 
 function updateErrorBadge(){
@@ -215,44 +296,88 @@ function updateErrorBadge(){
   }
   debugBadge.style.display = "block";
   debugBadge.textContent = debug ? "viz error" : "⚠";
-  debugBadge.title = errorText(vizError);
+  debugBadge.title = vizErrorInfo ? vizErrorInfo.message : errorMessage(vizError);
 }
 
-function recordVizError(err){
+function recordVizError(err, context){
+  const id = context?.id || vizName;
+  const meta = registry.get(id);
+  const name = meta?.name || id;
+  const phase = context?.phase || "unknown";
+  const switchState = context?.switchState || "not-attempted";
   vizError = err;
+  vizErrorInfo = {
+    id,
+    name,
+    phase,
+    switchState,
+    message: errorMessage(err),
+    stack: errorStack(err),
+    time: new Date().toISOString(),
+  };
+  console.error(`Visualizer error [${phase}] ${name} (${id})`, err);
   if (debug && window.__vizDebugLog) {
-    window.__vizDebugLog("[viz error]", errorText(err));
+    window.__vizDebugLog("[viz error]", `${name} (${id}) ${vizErrorInfo.message}`);
   }
   updateErrorBadge();
+  updateErrorPanel();
 }
 
 function clearVizError(){
   vizError = null;
+  vizErrorInfo = null;
   updateErrorBadge();
+  updateErrorPanel();
+}
+
+let _pendingFallback = false;
+let _safeModeFailed = false;
+
+function scheduleSafeModeFallback(){
+  if(_pendingFallback) return;
+  _pendingFallback = true;
+  requestAnimationFrame(()=>{
+    _pendingFallback = false;
+    if(vizName === SAFE_VIZ_ID) return;
+    vizSel.value = SAFE_VIZ_ID;
+    setViz(SAFE_VIZ_ID);
+  });
 }
 
 window.addEventListener("error", (e)=>{
   const err = e.error || e.message || e;
-  console.error(err);
-  recordVizError(err);
+  const canSwitch = vizName !== SAFE_VIZ_ID && registry.get(SAFE_VIZ_ID);
+  recordVizError(err, { id: vizName, phase: "window", switchState: canSwitch ? "switched" : "already" });
+  if(canSwitch) scheduleSafeModeFallback();
 });
 
 window.addEventListener("unhandledrejection", (e)=>{
-  console.error(e.reason);
-  recordVizError(e.reason);
+  const err = e.reason || e;
+  const canSwitch = vizName !== SAFE_VIZ_ID && registry.get(SAFE_VIZ_ID);
+  recordVizError(err, { id: vizName, phase: "promise", switchState: canSwitch ? "switched" : "already" });
+  if(canSwitch) scheduleSafeModeFallback();
 });
+
+function validateVizInstance(instance){
+  const missing = [];
+  if(!instance || typeof instance.onResize !== "function") missing.push("onResize");
+  if(!instance || typeof instance.onFrame !== "function") missing.push("onFrame");
+  if(!instance || typeof instance.destroy !== "function") missing.push("destroy");
+  if(missing.length){
+    throw new Error(`Visualizer missing methods: ${missing.join(", ")}`);
+  }
+}
 
 function setViz(name){
   let destroyError = null;
   let destroyFailed = false;
-  if(viz && viz.destroy){
+  if(viz && typeof viz.destroy === "function"){
     try{
       viz.destroy();
     }catch(err){
       destroyError = err;
       destroyFailed = true;
-      console.error("destroy failed", err);
-      recordVizError(err);
+      recordVizError(err, { id: vizName, phase: "destroy", switchState: "not-attempted" });
     }
   }
 
@@ -266,39 +391,49 @@ function setViz(name){
   }
 
   const tryCreate = (id)=>{
-    try{
-      viz = createVisualizer(id, canvas);
-      vizName = id;
-      return null;
-    }catch(err){
-      console.error(err);
-      return err;
-    }
+    const instance = createVisualizer(id, canvas);
+    validateVizInstance(instance);
+    return instance;
   };
 
-  let err = tryCreate(name);
-  if(err){
-    recordVizError(err);
-    const fallback = name !== "spectrum" && registry.get("spectrum") ? "spectrum" : null;
-    if(fallback){
-      replaceCanvas();
-      err = tryCreate(fallback);
-      if(err){
-        recordVizError(err);
-        viz = null;
-      }else if(vizSel.value !== fallback){
-        vizSel.value = fallback;
-      }
-    }else{
+  let err = null;
+  if(!registry.get(name)){
+    err = new Error(`Unknown visualizer: ${name}`);
+  }else{
+    try{
+      viz = tryCreate(name);
+    }catch(e){
+      err = e;
       viz = null;
     }
-  }else if(!destroyError){
-    clearVizError();
+  }
+
+  if(err){
+    const canFallback = name !== SAFE_VIZ_ID && registry.get(SAFE_VIZ_ID);
+    recordVizError(err, { id: name, phase: "create", switchState: canFallback ? "switched" : "already" });
+    if(canFallback){
+      replaceCanvas();
+      let fallbackErr = null;
+      try{
+        viz = tryCreate(SAFE_VIZ_ID);
+      }catch(e){
+        fallbackErr = e;
+        viz = null;
+      }
+      if(fallbackErr){
+        recordVizError(fallbackErr, { id: SAFE_VIZ_ID, phase: "fallback", switchState: "failed" });
+        _safeModeFailed = true;
+      }else{
+        vizName = SAFE_VIZ_ID;
+        if(vizSel.value !== SAFE_VIZ_ID) vizSel.value = SAFE_VIZ_ID;
+      }
+    }
   }
 
   if(!viz){
     if(!embed){
-      meta.innerHTML = `Visualizer error: <b>${errorText(vizError)}</b>`;
+      const msg = vizErrorInfo ? vizErrorInfo.message : errorMessage(vizError);
+      meta.innerHTML = `Visualizer error: <b>${msg}</b>`;
     }
     return;
   }
@@ -405,9 +540,6 @@ const frame = {
   viewport: { w: 0, h: 0, dpr: 1 },
 };
 
-let _vizErrStreak = 0;
-let _pendingFallback = false;
-
 let __lastAnimNow = performance.now();
 let __t = 0;
 
@@ -454,23 +586,14 @@ function reportMutation(which){
   mutationLogged.add(key);
   const label = registry.get(vizName)?.name || vizName;
   const msg = `[VizMutation] ${label} (${vizName}) modified input ${which}`;
-  console.error(msg);
-  recordVizError(msg);
+  recordVizError(msg, { id: vizName, phase: "mutation", switchState: "not-attempted" });
 }
 
 function animate(){
   requestAnimationFrame(animate);
   if(!viz || !latestFrame) return;
-
-  // If we had repeated onFrame failures, fall back on the next frame (prevents re-entrant setViz()).
-  if(_pendingFallback){
-    _pendingFallback = false;
-    if(vizName !== "spectrum" && registry.get("spectrum")){
-      vizSel.value = "spectrum";
-      setViz("spectrum");
-    }
-    return;
-  }
+  if(_pendingFallback) return;
+  if(_safeModeFailed && vizName === SAFE_VIZ_ID) return;
 
   const gain = Number(gainEl.value);
   const a60 = Number(vsmoothEl.value);
@@ -548,10 +671,13 @@ function animate(){
     let err = null;
     try{ viz.onFrame(frame); }catch(e){ err = e; }
     if(err){
-      console.error(err);
-      recordVizError(err);
-      _vizErrStreak++;
-      if(_vizErrStreak >= 3) _pendingFallback = true;
+      const canSwitch = vizName !== SAFE_VIZ_ID && registry.get(SAFE_VIZ_ID);
+      recordVizError(err, { id: vizName, phase: "onFrame", switchState: canSwitch ? "switched" : "already" });
+      if(canSwitch){
+        scheduleSafeModeFallback();
+      }else{
+        _safeModeFailed = true;
+      }
       return;
     }
 
@@ -566,17 +692,16 @@ function animate(){
     try{
       viz.onFrame(frame);
     }catch(e){
-      console.error(e);
-      recordVizError(e);
-      _vizErrStreak++;
-      if(_vizErrStreak >= 3) _pendingFallback = true;
+      const canSwitch = vizName !== SAFE_VIZ_ID && registry.get(SAFE_VIZ_ID);
+      recordVizError(e, { id: vizName, phase: "onFrame", switchState: canSwitch ? "switched" : "already" });
+      if(canSwitch){
+        scheduleSafeModeFallback();
+      }else{
+        _safeModeFailed = true;
+      }
       return;
     }
   }
-
-  // Successful frame: reset error streak and clear badge (unless mutation reported).
-  if(_vizErrStreak) _vizErrStreak = 0;
-  if(vizError && !(typeof vizError === "string" && vizError.startsWith("[VizMutation]"))) clearVizError();
 }
 resize();
 animate();
