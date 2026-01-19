@@ -66,6 +66,9 @@ export class TunnelWarpWebGL {
       u_res: gl.getUniformLocation(this._progI, "u_res"),
       u_time: gl.getUniformLocation(this._progI, "u_time"),
       u_travel: gl.getUniformLocation(this._progI, "u_travel"),
+      u_path: gl.getUniformLocation(this._progI, "u_path"),
+      u_pathRate: gl.getUniformLocation(this._progI, "u_pathRate"),
+      u_bend: gl.getUniformLocation(this._progI, "u_bend"),
       u_energy: gl.getUniformLocation(this._progI, "u_energy"),
       u_bass: gl.getUniformLocation(this._progI, "u_bass"),
       u_mid: gl.getUniformLocation(this._progI, "u_mid"),
@@ -105,9 +108,25 @@ export class TunnelWarpWebGL {
     );
     gl.bindTexture(gl.TEXTURE_2D, null);
 
+    // Path texture (static 1D LUT for tunnel curvature)
+    // Stores signed XY in RG (0..255 => -1..1). Periodic by construction.
+    this._pathW = 256;
+    this._pathTex = gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D, this._pathTex);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.REPEAT);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(gl.TEXTURE_2D, 0, gl.RGBA, this._pathW, 1, 0, gl.RGBA, gl.UNSIGNED_BYTE, null);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+
     this._audioPixels = new Uint8Array(this._audioW * 4);
     this._agcSpec = 1e-3;
     this._invSpec = 1.0;
+    this._pathPixels = new Uint8Array(this._pathW * 4);
+    this._pathRate = 0.045; // cycles per world-z unit (shader uses fract(z * rate))
+    this._bend = 0.22; // smoothed bend amplitude (world units)
+    this._initPathTexture();
 
     this._t0 = performance.now();
     this._lastNowMs = this._t0;
@@ -194,6 +213,14 @@ export class TunnelWarpWebGL {
       this._mid    = a * this._mid    + (1 - a) * logNorm(midRaw,  140);
       this._treble = a * this._treble + (1 - a) * logNorm(trbRaw,  160);
 
+      // Camera bend should be smooth and mostly independent of short-term audio jitter.
+      const bendTarget = clamp01(0.18 + 0.22 * this._mid + 0.14 * this._energy);
+      const bendMin = 0.14;
+      const bendMax = 0.46;
+      const bendWanted = bendMin + (bendMax - bendMin) * bendTarget;
+      const bendA = Math.exp(-dt * 1.2); // slow smoothing
+      this._bend = bendA * this._bend + (1 - bendA) * bendWanted;
+
       const speed = 0.55 + 1.4 * this._bass + 0.3 * this._energy;
       this._travel = Number.isFinite(this._travel) ? this._travel : 0;
       this._travel += dt * speed;
@@ -241,9 +268,15 @@ export class TunnelWarpWebGL {
       gl.bindTexture(gl.TEXTURE_2D, this._writeTex);
       gl.uniform1i(this._locI.u_buf, 0);
 
+      gl.activeTexture(gl.TEXTURE1);
+      gl.bindTexture(gl.TEXTURE_2D, this._pathTex);
+      gl.uniform1i(this._locI.u_path, 1);
+
       gl.uniform2f(this._locI.u_res, this.canvas.width, this.canvas.height);
       gl.uniform1f(this._locI.u_time, t);
       gl.uniform1f(this._locI.u_travel, this._travel);
+      gl.uniform1f(this._locI.u_pathRate, this._pathRate);
+      gl.uniform1f(this._locI.u_bend, this._bend);
       gl.uniform1f(this._locI.u_energy, this._energy);
       gl.uniform1f(this._locI.u_bass, this._bass);
       gl.uniform1f(this._locI.u_mid, this._mid);
@@ -269,6 +302,7 @@ export class TunnelWarpWebGL {
       gl.deleteBuffer(this._vb);
 
       if (this._audioTex) gl.deleteTexture(this._audioTex);
+      if (this._pathTex) gl.deleteTexture(this._pathTex);
 
       this._deleteTarget(this._texA, this._fbA);
       this._deleteTarget(this._texB, this._fbB);
@@ -312,6 +346,47 @@ export class TunnelWarpWebGL {
     }
 
     gl.bindTexture(gl.TEXTURE_2D, this._audioTex);
+    gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
+    gl.bindTexture(gl.TEXTURE_2D, null);
+  }
+
+  _initPathTexture() {
+    // Periodic curvature path as a sum of a few sine/cosine harmonics.
+    // Many bends ahead, perfectly stable (no time dependence).
+    const gl = this.gl;
+    const N = this._pathW;
+    const px = this._pathPixels;
+    const TAU = Math.PI * 2;
+
+    const ax1 = 0.78, ax2 = 0.52, ax3 = 0.34;
+    const ay1 = 0.76, ay2 = 0.50, ay3 = 0.36;
+    const phx1 = 0.20, phx2 = 1.70, phx3 = 0.45;
+    const phy1 = 0.95, phy2 = 2.35, phy3 = 1.10;
+    const norm = 1.0 / (ax1 + ax2 + ax3);
+
+    for (let i = 0; i < N; i++) {
+      const t = i / N;
+      const x = norm * (
+        ax1 * Math.sin(TAU * (1 * t) + phx1) +
+        ax2 * Math.sin(TAU * (2 * t) + phx2) +
+        ax3 * Math.sin(TAU * (3 * t) + phx3)
+      );
+      const y = norm * (
+        ay1 * Math.cos(TAU * (1 * t) + phy1) +
+        ay2 * Math.cos(TAU * (2 * t) + phy2) +
+        ay3 * Math.cos(TAU * (4 * t) + phy3)
+      );
+
+      const r = Math.max(0, Math.min(255, ((x * 0.5 + 0.5) * 255) | 0));
+      const g = Math.max(0, Math.min(255, ((y * 0.5 + 0.5) * 255) | 0));
+      const o = i * 4;
+      px[o + 0] = r;
+      px[o + 1] = g;
+      px[o + 2] = 0;
+      px[o + 3] = 255;
+    }
+
+    gl.bindTexture(gl.TEXTURE_2D, this._pathTex);
     gl.texSubImage2D(gl.TEXTURE_2D, 0, 0, 0, N, 1, gl.RGBA, gl.UNSIGNED_BYTE, px);
     gl.bindTexture(gl.TEXTURE_2D, null);
   }
@@ -455,6 +530,9 @@ uniform sampler2D u_buf;
 uniform vec2  u_res;
 uniform float u_time;
 uniform float u_travel;
+uniform sampler2D u_path;
+uniform float u_pathRate;
+uniform float u_bend;
 uniform float u_energy;
 uniform float u_bass;
 uniform float u_mid;
@@ -481,6 +559,12 @@ vec2 position2(float z, float amp){
   return p * amp;
 }
 
+vec2 pathAt(float z){
+  float u = fract(z * u_pathRate);
+  vec2 rg = texture2D(u_path, vec2(u, 0.5)).rg;
+  return rg * 2.0 - 1.0;
+}
+
 // Regular N-gon boundary radius (circumradius R) for a given angle theta.
 float ngonRadius(float theta, float R, float N){
   float tau = 6.28318530718;
@@ -501,17 +585,14 @@ void main(){
   float tau = 6.28318530718;
   float camZ = u_travel * 7.0; // SLOWER motion (visual speed). Raise if you want faster.
 
-  // Bend amplitude from mids, with a little energy so it wakes up on sound
-  float bendAmp = (0.06 + 0.10*u_mid + 0.06*u_energy) * 2.4;
-  bendAmp *= (1.0 + 0.25*sin(u_time*0.35));
-  vec2 cam = position2(camZ, bendAmp);
+  vec2 cam = pathAt(camZ) * u_bend;
 
   // Approx "camera sideways velocity" (used to sell steering)
-  vec2 camF = position2(camZ + 1.0, bendAmp);
-  vec2 camB = position2(camZ - 1.0, bendAmp);
-  vec2 dcamdz = (camF - camB) * 0.5;
-  vec2 d2camdz2 = (camF - cam * 2.0 + camB);
-  vec2 steer  = dcamdz * (0.55 + 1.10*u_energy); // used for slip/steer feel
+  float dzCam = 0.85;
+  vec2 camF = pathAt(camZ + dzCam) * u_bend;
+  vec2 camB = pathAt(camZ - dzCam) * u_bend;
+  vec2 dcamdz = (camF - camB) / (2.0 * dzCam);
+  vec2 steer  = dcamdz * (0.35 + 0.80*u_energy); // used for slip/steer feel
 
   vec3 f = vec3(0.0);
   float aAccum = 0.0;
@@ -534,21 +615,19 @@ void main(){
     float invZ = 1.0 / screenZ;
 
     // Weight falls with depth (gentler falloff so far portals stay visible).
-    float wZ = 0.075 * invZ / (0.55 + 0.03*screenZ);
+    float wZ = 0.090 * invZ / (0.45 + 0.020*screenZ);
 
     // Depth brightness rebalance: dim near, boost far (keeps perspective, improves readability).
     float nearDim = mix(0.55, 1.0, smoothstep(6.0, 18.0, screenZ));
-    float farBoost = mix(1.0, 2.2, smoothstep(18.0, 60.0, screenZ));
+    float farBoost = mix(1.0, 3.0, smoothstep(16.0, 60.0, screenZ));
     float zGain = nearDim * farBoost;
 
     // Projected portal radius (bigger when closer)
-    float R = (0.82 + 0.10*sin(realZ*0.07 + u_time*0.35)) * (1.0 + 0.10*u_bass);
+    float R = (0.82 + 0.10*sin(realZ*0.07)) * (1.0 + 0.10*u_bass);
     float rPortal = R * invZ;
 
-    // Centerline projection: use a 2nd-order Taylor approximation of position2()
-    // so portal centers stay aligned with the camera path without per-step trig.
-    float dz = (realZ - camZ);
-    vec2 rel = dcamdz * dz + 0.5 * d2camdz2 * (dz * dz);
+    vec2 portal = pathAt(realZ) * u_bend;
+    vec2 rel = (portal - cam);
     vec2 c = rel * (midScale * invZ) - steer * slip;
 
     vec2 q = p - c;
@@ -574,12 +653,16 @@ void main(){
     // NEAR PORTALS: polygon morph + mild kaleido
     float ang  = atan(q.y, q.x);
     // Deterministic sides: 3 -> 4 -> 5 -> 6 -> circle -> 6 -> 5 -> 4 -> 3.
-    float t = fract(realZ*0.028 + u_time*0.05);
-    float pp = 1.0 - abs(2.0 * t - 1.0); // 0->1->0 ping-pong
-    float step = floor(pp * 4.0);
-    float sidesInt = 3.0 + min(step, 3.0);
-    float circleZone = smoothstep(0.92, 0.98, pp);
-    float N = mix(sidesInt, 28.0, circleZone);
+    float sliceIndex = floor(realZ / spacing);
+    float m = mod(sliceIndex, 9.0);
+    float N;
+    if (m < 4.0) {
+      N = 3.0 + m;
+    } else if (m < 5.0) {
+      N = 28.0;
+    } else {
+      N = 3.0 + (8.0 - m);
+    }
 
     float rb = ngonRadius(ang, rPortal, N);
     float d = abs(dist - rb);

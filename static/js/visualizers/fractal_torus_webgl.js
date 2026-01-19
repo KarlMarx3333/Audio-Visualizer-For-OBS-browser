@@ -1,5 +1,10 @@
 // static/js/visualizers/fractal_torus_webgl.js
-// Fractal Torus Tunnel (WebGL) -- Shadertoy-inspired (bal-khan MdBczW), adapted to ObsVizHost contract.
+// Fractal Torus Tunnel (WebGL) -- adapted to ObsVizHost contract.
+// Credits:
+// - Original/adapted from: "Fractal Toras Tunnel" by netgrind (2017-05-16)
+//   https://www.shadertoy.com/view/ld2yDD
+// - Inspired by: "Disco tunnel" by WAHa_06x36 (2018-05-08)
+//   https://www.shadertoy.com/view/XstfzB
 // Two-pass: BufferA (feedback + audio row) -> Image (raymarch).
 // Overlay-friendly: no opaque page background; final alpha derived from luminance.
 
@@ -156,7 +161,7 @@ void main() {
 }
 `;
 
-// Shadertoy Image adapted (bal-khan MdBczW) with alpha derived from luminance
+// Shadertoy Image adapted from netgrind (ld2yDD); alpha derived from luminance.
 const FS_IMAGE = `
 #ifdef GL_FRAGMENT_PRECISION_HIGH
 precision highp float;

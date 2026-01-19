@@ -58,6 +58,11 @@ The host (`static/visualizer.html`) owns timing and passes a stable `frame` obje
 
 Do **not** compute dt from `ts`; always use `frame.dt`.
 
+## Multi-pass (Shadertoy-style)
+This repo includes a small multi-pass helper at `static/js/webgl/multipass.js` for Shadertoy-style pipelines (BufferA/B/C + Image aliases).
+It supports per-pass feedback ping-pong, per-pass scale, built-in uniforms (`u_res`, `u_time` with optional wrap, `u_dt`, `u_frame`), and an audio texture binding (`u_audio`) with built-in AGC.
+Visualizers currently using it: `static/js/visualizers/feedback_webgl.js`, `static/js/visualizers/fractal_torus_webgl.js`.
+
 ## Debugging
 - `?debug=1` enables mutation detection and exposes detailed error info.
 - Errors show a persistent on-screen warning badge; embed mode uses a small icon and auto-falls back to Spectrum after repeated failures.
@@ -67,13 +72,13 @@ Do **not** compute dt from `ts`; always use `frame.dt`.
 ### Particle Swarm / Explosions (WebGL2)
 ![Particle Swarm](Demo/particle_swarm_demo.png)
 
-### Tunnel (WebGL)
-![Tunnel](Demo/tunnel_webgl_demo.png)
+### Tunnel / Warp Speed (WebGL)
+![Tunnel / Warp Speed](Demo/tunnel_webgl_demo.webp)
 
-### Feedback
+### Feedback Mirror (WebGL)
 ![Feedback](Demo/feedback_demo.png)
 
-### Plasma
+### Plasma (WebGL)
 ![Plasma](Demo/plasma_demo.png)
 
 ### Chroma Ring
@@ -91,13 +96,20 @@ Do **not** compute dt from `ts`; always use `frame.dt`.
 ### Spectrum
 ![Spectrum](Demo/spectrum_demo.png)
 
-### Additional visualizers (no demo images yet)
-- Fractal Torus Tunnel (WebGL)
-- Neon Membrane Vortex (WebGL2)
-- Milkdrop-ish Warp Reactor (WebGL2)
+### Fractal Torus Tunnel (WebGL)
+![Fractal Torus Tunnel](Demo/fractal%20torus_demo.png)
+
+### Neon Membrane Vortex
+![Neon Membrane Vortex](Demo/membrane_demo.png)
+
+### Milkdrop-ish Warp Reactor (WebGL2)
+![Milkdrop-ish Warp Reactor](Demo/milkdrop_demo.png)
 
 ## Shader credits / attributions
-- Fractal Torus Tunnel (WebGL): adapted from Shadertoy shader by bal-khan (MdBczW) - https://www.shadertoy.com/view/MdBczW
+- Fractal Torus Tunnel (WebGL): adapted from Shadertoy shader "Fractal Toras Tunnel"
+  Created by netgrind (2017-05-16) https://www.shadertoy.com/view/ld2yDD
+  Tunnel / Warp Speed inspired by Shadertoy shader "Disco tunnel"
+  Created by WAHa_06x36 (2018-05-08) https://www.shadertoy.com/view/XstfzB
 
 
 ## Add a new visualizer

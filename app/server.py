@@ -28,7 +28,7 @@ VISUALIZERS = [
     {"id": "tunnel", "name": "Tunnel / Warp Speed (WebGL)", "renderer": "webgl"},
     {"id": "swarm", "name": "Particle Swarm / Explosions (WebGL2)", "renderer": "webgl"},
     {"id": "fractal_torus", "name": "Fractal Torus Tunnel (WebGL)", "renderer": "webgl"},
-    {"id": "membrane_vortex", "name": "Neon Membrane Vortex (WebGL2)", "renderer": "webgl"},
+    {"id": "membrane_vortex", "name": "Neon Membrane Vortex", "renderer": "webgl"},
     {"id": "milkdrop", "name": "Milkdrop-ish Warp Reactor (WebGL2)", "renderer": "webgl"},
 ]
 

@@ -44,18 +44,22 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 │       │   ├── fractal_torus_webgl.js
 │       │   ├── membrane_vortex_webgl2.js
 │       │   ├── milkdrop_webgl2.js
-│       │   └── cavern_webgl2.js
-│       └── webgl/util.js
+│       └── webgl/
+│           ├── util.js
+│           └── multipass.js
 ├── Demo/
-│   ├── particle_swarm_demo.png
-│   ├── tunnel_webgl_demo.png
-│   ├── feedback_demo.png
-│   ├── plasma_demo.png
 │   ├── chroma_ring_demo.png
-│   ├── vectorscope_demo.png
-│   ├── spectrogram_demo.png
+│   ├── feedback_demo.png
+│   ├── fractal torus_demo.png
+│   ├── membrane_demo.png
+│   ├── milkdrop_demo.png
 │   ├── oscilloscope_demo.png
-│   └── spectrum_demo.png
+│   ├── particle_swarm_demo.png
+│   ├── plasma_demo.png
+│   ├── spectrogram_demo.png
+│   ├── spectrum_demo.png
+│   ├── tunnel_webgl_demo.webp
+│   └── vectorscope_demo.png
 ├── requirements.txt
 ├── README.md
 ├── Repo_zipper.ps1
@@ -77,10 +81,10 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 
 ## Visualizer contract (client-side)
 - Visualizers are ES modules in `static/js/visualizers/` that export a class with `static id`, `static name`, and `static renderer` (`"2d"` or `"webgl"`), plus `constructor(canvas)` and `onFrame(frame)`. Optional lifecycle hooks: `onResize(width, height, dpr)` and `destroy()`.
-- `static/js/visualizers/registry.js` registers visualizer classes and provides aliases for legacy IDs (currently `"cavern"` -> `"membrane_vortex"`). `createVisualizer()` falls back to `"spectrum"` if an ID is unknown.
+- `static/js/visualizers/registry.js` registers visualizer classes. `createVisualizer()` falls back to `"spectrum"` if an ID is unknown.
 - `static/visualizer.html` owns the render loop and calls `viz.onFrame(frame)` each animation frame; visualizers should treat this as their update tick (no separate RAF loop needed).
 - Visualizers should animate using `frame.dt` (seconds) and `frame.t` (seconds); do not derive dt from `frame.ts`.
-- WebGL visualizers manage their own GL resources (programs, textures, FBOs). Some use a multipass feedback pattern (BufferA + Image) with ping-pong targets, e.g. `static/js/visualizers/fractal_torus_webgl.js` and `static/js/visualizers/milkdrop_webgl2.js`.
+- WebGL visualizers manage their own GL resources (programs, textures, FBOs). Some use a multipass feedback pattern (BufferA + Image) with ping-pong targets, e.g. `static/js/visualizers/fractal_torus_webgl.js` and `static/js/visualizers/feedback_webgl.js`.
 - The `frame` payload passed to visualizers includes:
   - `frameId`, `ts` (raw source timestamp), `tsMs` (best-effort milliseconds)
   - `dt` (seconds), `t` (seconds), `time = { t, dt }`
@@ -90,6 +94,13 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
   - `gain`, `samplerate`, `fftSize`, `overlay` (true when `?embed=1`)
 - The smoothed arrays are reused; visualizers must treat `spectrum`, `wave`, and `waveLR` as read-only. Debug mode (`?debug=1`) detects mutations.
 - `viz.onFrame()` is wrapped in try/catch; errors show a persistent on-screen warning badge (short icon in embed) and after 3 consecutive failures the host falls back to Spectrum on the next frame.
+
+## Multi-pass (Shadertoy-style) pipeline
+Helper: `static/js/webgl/multipass.js` (used by `static/js/visualizers/feedback_webgl.js` and `static/js/visualizers/fractal_torus_webgl.js`).
+It builds named passes (A/B/C/Image aliases, or BufferA/BufferB/BufferC/Image), with optional feedback ping-pong per pass and per-pass scale.
+Built-in uniforms can be injected per pass: `u_res`, `u_time` (optionally wrapped), `u_dt`, `u_frame`.
+Texture bindings support: previous pass feedback (`kind: "prev"`), pass outputs (`kind: "pass"`), and audio texture (`kind: "audio"`).
+Audio texture is a 1D RGBA row with built-in AGC/boost.
 
 ## Data flow
 Primary happy path: audio input is captured, analyzed, and streamed to the browser.

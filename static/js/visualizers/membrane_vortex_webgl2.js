@@ -19,9 +19,9 @@
 import { createProgram, createFullscreenQuad } from "/static/js/webgl/util.js";
 import { dtFromFrameOrNow, tFromFrameOrSelf } from "./timebase.js";
 
-export class NeonMembraneVortexWebGL2 {
+export class MembraneVortexWebGL2 {
   static id = "membrane_vortex";
-  static name = "Neon Membrane Vortex (WebGL2)";
+  static name = "Neon Membrane Vortex";
   static renderer = "webgl";
 
   constructor(canvas) {
@@ -401,7 +401,7 @@ mat2 rot(float a){
   return mat2(c,-s,s,c);
 }
 
-float cavernRadius(float z, float bass){
+float vortexRadius(float z, float bass){
   float r = 1.55;
   r += 0.22 * sin(z * 0.12);
   r += 0.14 * (noise3(vec3(z*0.08, 0.0, 0.0)) - 0.5);
@@ -422,7 +422,7 @@ float mapScene(vec3 p){
   vec3 w = warp3(p*0.35, u_time*0.15) * 2.0 - 1.0;
   vec3 q = p + w * warpAmt;
 
-  float r = cavernRadius(q.z, u_bass);
+  float r = vortexRadius(q.z, u_bass);
   float dCave = abs(length(q.xy) - r);
 
   // PERF: no Voronoi geometry displacement in the SDF (that was the big cost).
@@ -649,7 +649,7 @@ mat2 rot(float a){
   return mat2(c,-s,s,c);
 }
 
-float cavernRadius(float z, float bass){
+float vortexRadius(float z, float bass){
   float r = 1.55;
   r += 0.22 * sin(z * 0.12);
   r += 0.14 * (noise3(vec3(z*0.08, 0.0, 0.0)) - 0.5);
@@ -667,7 +667,7 @@ float mapScene(vec3 p){
   vec3 w = warp3(p*0.35, u_time*0.15) * 2.0 - 1.0;
   vec3 q = p + w * warpAmt;
 
-  float r = cavernRadius(q.z, u_bass);
+  float r = vortexRadius(q.z, u_bass);
   float dCave = abs(length(q.xy) - r);
 
   float plane = abs(sin(dot(q, normalize(vec3(0.86,0.21,0.45))) * 3.1));
