@@ -1,4 +1,5 @@
 import { SafeCanvas2D } from "/static/js/visualizers/safe_canvas2d.js";
+import { PlasmaWebGL2MP } from "/static/js/visualizers/plasma_webgl2_mp.js";
 
 class Registry {
   constructor() {
@@ -9,6 +10,7 @@ class Registry {
     if (this._loaded) return;
     this._loaded = true;
     this.register(SafeCanvas2D);
+    this.register(PlasmaWebGL2MP);
   }
   register(V) { this._map.set(V.id, V); }
   get(id) { return this._map.get(id); }
