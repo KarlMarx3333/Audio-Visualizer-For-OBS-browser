@@ -1,5 +1,8 @@
 // static/js/visualizers/tunnel_webgl.js
 // Tunnel / Warp Speed (WebGL) -- BufferA + Image pipeline with audio row feed.
+// Credits:
+// - Inspired by: "Disco tunnel" by WAHa_06x36 (2018-05-08)
+//   https://www.shadertoy.com/view/XstfzB
 
 import { dtFromFrameOrNow, tFromFrameOrSelf } from "./timebase.js";
 

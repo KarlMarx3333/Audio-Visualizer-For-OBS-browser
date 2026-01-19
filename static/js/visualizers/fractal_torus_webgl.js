@@ -3,8 +3,6 @@
 // Credits:
 // - Original/adapted from: "Fractal Toras Tunnel" by netgrind (2017-05-16)
 //   https://www.shadertoy.com/view/ld2yDD
-// - Inspired by: "Disco tunnel" by WAHa_06x36 (2018-05-08)
-//   https://www.shadertoy.com/view/XstfzB
 // Two-pass: BufferA (feedback + audio row) -> Image (raymarch).
 // Overlay-friendly: no opaque page background; final alpha derived from luminance.
 

@@ -108,7 +108,7 @@ Visualizers currently using it: `static/js/visualizers/feedback_webgl.js`, `stat
 ## Shader credits / attributions
 - Fractal Torus Tunnel (WebGL): adapted from Shadertoy shader "Fractal Toras Tunnel"
   Created by netgrind (2017-05-16) https://www.shadertoy.com/view/ld2yDD
-  Tunnel / Warp Speed inspired by Shadertoy shader "Disco tunnel"
+- Tunnel / Warp Speed (WebGL): inspired by Shadertoy shader "Disco tunnel"
   Created by WAHa_06x36 (2018-05-08) https://www.shadertoy.com/view/XstfzB
 
 
