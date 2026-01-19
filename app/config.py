@@ -24,7 +24,7 @@ class AppConfig:
     selected_device_name: Optional[str] = None
     samplerate: int = 48000
     channels: int = 1
-    visualizer_name: str = "spectrum"
+    visualizer_name: str = "safe_canvas2d"
     smoothing: float = 0.65
     gain: float = 1.0
     visual_smoothing: float = 0.55

@@ -3,6 +3,8 @@ from __future__ import annotations
 import asyncio
 import struct
 import threading
+import sys
+import traceback
 from pathlib import Path
 from typing import Any, Dict, Optional
 
@@ -18,19 +20,10 @@ from .audio_engine import list_input_devices, AudioEngine
 from .analysis import Analyzer
 
 VISUALIZERS = [
-    {"id": "spectrum", "name": "Spectrum Bars", "renderer": "2d"},
-    {"id": "oscilloscope", "name": "Oscilloscope", "renderer": "2d"},
-    {"id": "spectrogram", "name": "Waterfall Spectrogram", "renderer": "2d"},
-    {"id": "vectorscope", "name": "Stereo Vectorscope / Goniometer", "renderer": "2d"},
-    {"id": "chroma", "name": "Chromagram / Pitch-Class Ring", "renderer": "2d"},
-    {"id": "plasma", "name": "Neon Plasma (WebGL)", "renderer": "webgl"},
-    {"id": "feedback", "name": "Feedback Mirror (WebGL)", "renderer": "webgl"},
-    {"id": "tunnel", "name": "Tunnel / Warp Speed (WebGL)", "renderer": "webgl"},
-    {"id": "swarm", "name": "Particle Swarm / Explosions (WebGL2)", "renderer": "webgl"},
-    {"id": "fractal_torus", "name": "Fractal Torus Tunnel (WebGL)", "renderer": "webgl"},
-    {"id": "membrane_vortex", "name": "Neon Membrane Vortex", "renderer": "webgl"},
-    {"id": "milkdrop", "name": "Milkdrop-ish Warp Reactor (WebGL2)", "renderer": "webgl"},
+    {"id": "safe_canvas2d", "name": "Safe Mode (Canvas2D)", "renderer": "2d"},
+    {"id": "plasma", "name": "Plasma (WebGL2 Multipass)", "renderer": "webgl"},
 ]
+VISUALIZER_IDS = {v["id"] for v in VISUALIZERS}
 
 
 def _static_dir() -> Path:
@@ -121,11 +114,16 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
 
     @app.post("/api/visualizer")
     async def api_set_visualizer(payload: Dict[str, Any]):
-        vid = str(payload.get("visualizer", "spectrum"))
+        requested = str(payload.get("visualizer", "safe_canvas2d"))
+        vid = requested if requested in VISUALIZER_IDS else "safe_canvas2d"
         cfg.visualizer_name = vid
         save_config(cfg)
         state.update(visualizer_name=cfg.visualizer_name)
-        return JSONResponse({"ok": True})
+        return JSONResponse({
+            "ok": True,
+            "coerced": vid != requested,
+            "visualizer": vid,
+        })
 
     @app.post("/api/options")
     async def api_set_options(payload: Dict[str, Any]):
@@ -215,7 +213,9 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
         except WebSocketDisconnect:
             pass
         except Exception:
-            pass
+            print("WS audio error:", file=sys.stderr)
+            traceback.print_exc(file=sys.stderr)
+            state.set_error("ws audio error")
         finally:
             snap2 = state.snapshot()
             state.update(ws_clients=max(0, snap2.ws_clients - 1))

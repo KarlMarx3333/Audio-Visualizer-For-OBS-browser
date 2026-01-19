@@ -507,11 +507,15 @@ pollState();
 connectAudioWS({
   url: (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/audio",
   onFrame: (frame)=>{ latestFrame = frame; },
+  onError: (err)=>{
+    recordVizError(err, { id: vizName, phase: "audio", switchState: "not-attempted" });
+  },
 });
 
 let lastSpectrum = null;
 let lastWave = null;
 let lastWaveLR = null;
+const EMPTY_F32 = new Float32Array(0);
 
 // Stable, reusable frame object (avoid per-frame allocations).
 const frame = {
@@ -522,6 +526,10 @@ const frame = {
   rms: null,
   peak: null,
   corr: null,
+  bass: 0,
+  mid: 0,
+  high: 0,
+  energy: 0,
   overlay: false,
   waveLR: null,
   spectrum: null,
@@ -554,6 +562,12 @@ function smoothArray(prev, cur, alpha){
     out[i] = a*out[i] + b*cur[i];
   }
   return out;
+}
+
+function clamp01(x){
+  if(x < 0) return 0;
+  if(x > 1) return 1;
+  return x;
 }
 
 function checksumArray(arr){
@@ -604,29 +618,75 @@ function animate(){
   __dt = Math.min(0.1, Math.max(0.0, __dt));
   const alpha = Math.pow(a60, __dt * 60.0);
 
-  const spectrum = latestFrame.spectrum;
-  const waveLR = latestFrame.timeDomain;
-  const ch = latestFrame.channels;
+  const spectrumRaw = (latestFrame.spectrum && latestFrame.spectrum.length)
+    ? latestFrame.spectrum
+    : EMPTY_F32;
+  const waveLR = (latestFrame.timeDomain && latestFrame.timeDomain.length)
+    ? latestFrame.timeDomain
+    : EMPTY_F32;
+  const ch = Number.isFinite(latestFrame.channels) ? latestFrame.channels : 1;
 
   let monoWave;
-  if(ch === 1){
+  if(ch === 1 || waveLR.length < 2){
     monoWave = waveLR;
   }else{
     const n = Math.floor(waveLR.length / 2);
-    if(!viz._mono || viz._mono.length !== n) viz._mono = new Float32Array(n);
-    const m = viz._mono;
-    for(let i=0;i<n;i++){
-      m[i] = 0.5*(waveLR[2*i] + waveLR[2*i+1]);
+    if(n > 0){
+      if(!viz._mono || viz._mono.length !== n) viz._mono = new Float32Array(n);
+      const m = viz._mono;
+      for(let i=0;i<n;i++){
+        m[i] = 0.5*(waveLR[2*i] + waveLR[2*i+1]);
+      }
+      monoWave = m;
+    }else{
+      monoWave = EMPTY_F32;
     }
-    monoWave = m;
   }
 
-  lastSpectrum = smoothArray(lastSpectrum, spectrum, alpha);
-  lastWave = smoothArray(lastWave, monoWave, alpha);
-  if(ch === 2){
+  if(spectrumRaw.length){
+    lastSpectrum = smoothArray(lastSpectrum, spectrumRaw, alpha);
+  }else if(!lastSpectrum){
+    lastSpectrum = spectrumRaw;
+  }
+  if(monoWave.length){
+    lastWave = smoothArray(lastWave, monoWave, alpha);
+  }else if(!lastWave){
+    lastWave = monoWave;
+  }
+  if(ch === 2 && waveLR.length){
     lastWaveLR = smoothArray(lastWaveLR, waveLR, alpha);
   }else{
     lastWaveLR = null;
+  }
+
+  let bass = 0;
+  let mid = 0;
+  let high = 0;
+  let energy = 0;
+  const specLen = spectrumRaw.length | 0;
+  if(specLen > 0){
+    const b1 = Math.max(1, Math.floor(specLen * 0.12));
+    let m1 = Math.floor(specLen * 0.40);
+    if(m1 <= b1) m1 = b1;
+    if(m1 > specLen) m1 = specLen;
+    let sumBass = 0;
+    let sumMid = 0;
+    let sumHigh = 0;
+    let sumAll = 0;
+    for(let i=0;i<specLen;i++){
+      const v = spectrumRaw[i];
+      const sv = Number.isFinite(v) ? v : 0;
+      sumAll += sv;
+      if(i < b1) sumBass += sv;
+      else if(i < m1) sumMid += sv;
+      else sumHigh += sv;
+    }
+    energy = sumAll / specLen;
+    if(b1 > 0) bass = sumBass / b1;
+    const midCount = m1 - b1;
+    if(midCount > 0) mid = sumMid / midCount;
+    const highCount = specLen - m1;
+    if(highCount > 0) high = sumHigh / highCount;
   }
 
   // Fill stable frame object
@@ -641,6 +701,10 @@ function animate(){
   frame.rms = latestFrame.rms;
   frame.peak = latestFrame.peak;
   frame.corr = latestFrame.corr;
+  frame.bass = clamp01(bass);
+  frame.mid = clamp01(mid);
+  frame.high = clamp01(high);
+  frame.energy = clamp01(energy);
   frame.overlay = embed;
   frame.waveLR = lastWaveLR;
   frame.spectrum = lastSpectrum;
