@@ -8,6 +8,10 @@ OBS-focused audio visualizer host (v2-clean rewrite): v2-only registry, Safe Mod
 - WebGL2 multipass engine (GLSL300, fullscreen triangle, RGBA16F->RGBA8 fallback).
 - Plasma ported to multipass and audio-reactive.
 
+## Credits / Shader Inspirations
+- Original/adapted from: ‘Fractal Toras Tunnel’ by netgrind (2017-05-16) (Shadertoy: https://www.shadertoy.com/view/ld2yDD)
+- Inspired by: ‘Disco tunnel’ by WAHa_06x36 (2018-05-08) (Shadertoy: https://www.shadertoy.com/view/XstfzB)
+
 ## Getting Started
 Install dependencies (Windows PowerShell):
 ```powershell
@@ -81,10 +85,6 @@ Built-in uniforms include u_time, u_dt, u_frame, u_resolution, u_aspect, audio s
 
 ## Legacy demos
 Demo/ contains legacy visuals from pre-v2 and is not representative of v2-clean.
-
-## Shader credits / attributions
-Legacy references for planned ports:
-- Fractal Torus Tunnel (WebGL): adapted from Shadertoy shader "Fractal Toras Tunnel" by netgrind (2017-05-16) https://www.shadertoy.com/view/ld2yDD
 
 ## Add a new visualizer
 - Create a JS module in static/js/visualizers/ exporting a class with static id/name/renderer and the lifecycle methods.

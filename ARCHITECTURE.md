@@ -16,6 +16,9 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 - no silent error swallowing; failures visible on-screen + console, auto-fallback to Safe Mode.
 - overlay-safe alpha by default (no accidental opaque clears).
 
+## Design guardrails
+These constraints exist because OBS Browser Source (CEF) can run at variable FPS and is sensitive to GC spikes, shader churn, and opaque clears. The goal is stability and predictable compositing: dt-correct visuals, minimal runtime allocations, and visible failure modes that auto-fallback instead of silently degrading.
+
 ## Quick start mental model
 - `python -m app` (or `python -m app.main`) calls `main()` in `app/main.py` via `app/__main__.py`.
 - `main()` loads config from `app/config.py`, initializes `StateStore`, and starts `AudioEngine`.
@@ -103,8 +106,8 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 
 ## Multi-pass (v2 WebGL2) pipeline
 Helper: `static/js/webgl/multipass_webgl2.js`.
-It builds named passes (BufferA/BufferB/BufferC/Image) with optional feedback ping-pong per pass and per-pass scale.
-Key traits: WebGL2 + GLSL300, fullscreen triangle via `gl_VertexID`, cached uniform locations, RGBA16F→RGBA8 fallback.
+It builds a quad-only pipeline using a fullscreen triangle, with an `Image` pass plus optional `BufferA/BufferB/BufferC` passes and ping-pong feedback when a pass opts in.
+Key traits: WebGL2 + GLSL300, cached uniform locations, RGBA16F→RGBA8 fallback.
 Built-in uniforms include `u_time`, `u_dt`, `u_frame`, `u_resolution`, `u_aspect`, audio scalars (`u_energy`, etc.), and audio textures (`u_specTex`, `u_waveTex`).
 
 ## Data flow
