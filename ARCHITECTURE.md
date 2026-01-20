@@ -2,7 +2,7 @@
 ObsVizHost is a Windows tray application that captures microphone input, analyzes it in real time, and serves a local FastAPI web UI plus a WebSocket audio stream for OBS visualizers (stable `/render` and per-visualizer `/v/<name>`). At runtime it wires together a tray UI (`pystray`), an audio capture loop (`sounddevice`), an analysis worker (`numpy` FFT), a state store, and a local HTTP/WebSocket server (`uvicorn` + `FastAPI`), while the browser UI and visualizers live in `static/`.
 
 ## v2-clean direction (staged plan)
-- Stage 1: v2-only registry, Safe Canvas2D fallback, strict error surfacing + auto-fallback.
+- Stage 1: v2-only registry, Safe Mode Oscilloscope (Canvas2D) fallback, strict error surfacing + auto-fallback.
 - Stage 2: WebGL2-only fullscreen triangle multipass engine (GLSL300), BufferA/B/C + Image, optional feedback ping-pong, RGBA16F→RGBA8 fallback, built-in uniforms + audio textures.
 - Stage 3: port order: plasma → tunnel → feedback → fractal_torus → membrane_vortex.
 - Stage 4: audio contract cleanup (Python owns smoothing/AGC, add transient/onset scalar).
@@ -47,7 +47,7 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 │       ├── ws_client.js
 │       ├── visualizers/
 │       │   ├── registry.js
-│       │   ├── safe_canvas2d.js
+│       │   ├── oscilloscope2d.js
 │       │   └── plasma_webgl2_mp.js
 │       └── webgl/
 │           ├── util.js
@@ -82,7 +82,7 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 - **State store** Purpose: shared, thread-safe snapshot of app status and metrics; Key files: `app/state.py`; Public interfaces / classes: `StateStore`, `AppState`, `Metrics`; Depends on: `threading`, `dataclasses`; Used by: `main()` monitor thread, `TrayApp`, `create_app`.
 - **HTTP/WebSocket server** Purpose: serve UI assets and stream analysis frames; Key files: `app/server.py`; Public interfaces / classes: `create_app`, `ServerThread`, `VISUALIZERS`; Depends on: `FastAPI`, `uvicorn`, `StateStore`, `Analyzer`, `AudioEngine`; Used by: `app/main.py`, browser UI in `static/`. Provides `/render` (stable OBS URL) and `/v/{name}` (fixed visualizer links).
 - **Tray UI** Purpose: native tray icon and menus for device/visualizer selection plus the Audio Tuning window (gain + visual smoothing); Key files: `app/tray.py`; Public interfaces / classes: `TrayApp`; Depends on: `pystray`, `PIL`, `StateStore`, `AudioEngine`, `VISUALIZERS`, optional `tkinter`; Used by: `app/main.py`.
-- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`, `static/js/webgl/util.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `SafeCanvas2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source. `static/visualizer.html` is the engine loop: it owns timing (`frame.dt`, `frame.t`), canvas sizing, and visualizer switching (it replaces the canvas when switching renderer types or between WebGL visualizers to avoid context conflicts). It pulls `gain` and `visual_smoothing` from `/api/state`, applies client-side smoothing, builds a stable per-frame payload, and follows the server-selected visualizer when loaded via `/render`. Embed mode (`?embed=1`) hides the topbar and keeps a transparent background; the error badge remains visible, and errors surface in an on-screen panel. In debug mode (`?debug=1`), it checks for visualizers mutating shared audio buffers.
+- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`, `static/js/webgl/util.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `Oscilloscope2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source. `static/visualizer.html` is the engine loop: it owns timing (`frame.dt`, `frame.t`), canvas sizing, and visualizer switching (it replaces the canvas when switching renderer types or between WebGL visualizers to avoid context conflicts). It pulls `gain` and `visual_smoothing` from `/api/state`, applies client-side smoothing, builds a stable per-frame payload, and follows the server-selected visualizer when loaded via `/render`. Embed mode (`?embed=1`) hides the topbar and keeps a transparent background; the error badge remains visible, and errors surface in an on-screen panel. In debug mode (`?debug=1`), it checks for visualizers mutating shared audio buffers.
 
 ## Visualizer contract (client-side)
 - Visualizers are ES modules in `static/js/visualizers/` that export a class with `static id`, `static name`, and `static renderer` (`"2d"` or `"webgl"`), plus `constructor(canvas)` and `onFrame(frame)`. Optional lifecycle hooks: `onResize(width, height, dpr)` and `destroy()`.

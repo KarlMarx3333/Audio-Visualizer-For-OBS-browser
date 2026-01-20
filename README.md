@@ -1,10 +1,10 @@
 # ObsVizHost (Tray + Localhost Visualizers for OBS)
 
-OBS-focused audio visualizer host (v2-clean rewrite): v2-only registry, Safe Mode fallback, and a WebGL2 multipass engine.
+OBS-focused audio visualizer host (v2-clean rewrite): v2-only registry, Safe Mode Oscilloscope fallback, and a WebGL2 multipass engine.
 
 ## Current v2-clean status
 - v2-only visualizer list (Safe Mode + Plasma).
-- Safe Mode Canvas2D fallback with visible errors and auto-fallback.
+- Safe Mode Oscilloscope (Canvas2D) fallback with visible errors and auto-fallback.
 - WebGL2 multipass engine (GLSL300, fullscreen triangle, RGBA16F->RGBA8 fallback).
 - Plasma ported to multipass and audio-reactive.
 
@@ -67,7 +67,7 @@ It is WebGL2-only (GLSL300), uses a fullscreen triangle, caches uniform location
 Built-in uniforms include u_time, u_dt, u_frame, u_resolution, u_aspect, audio scalars (u_energy, etc.), and audio textures (u_specTex, u_waveTex).
 
 ## Staged plan (v2-clean)
-- Stage 1: v2-only registry, Safe Canvas2D fallback, strict error surfacing + auto-fallback.
+- Stage 1: v2-only registry, Safe Mode Oscilloscope (Canvas2D) fallback, strict error surfacing + auto-fallback.
 - Stage 2: WebGL2-only fullscreen triangle multipass engine (GLSL300), BufferA/B/C + Image, optional feedback ping-pong, RGBA16F->RGBA8 fallback, built-in uniforms + audio textures.
 - Stage 3: port order: plasma -> tunnel -> feedback -> fractal_torus -> membrane_vortex.
 - Stage 4: audio contract cleanup (Python owns smoothing/AGC, add transient/onset scalar).
@@ -85,7 +85,6 @@ Demo/ contains legacy visuals from pre-v2 and is not representative of v2-clean.
 ## Shader credits / attributions
 Legacy references for planned ports:
 - Fractal Torus Tunnel (WebGL): adapted from Shadertoy shader "Fractal Toras Tunnel" by netgrind (2017-05-16) https://www.shadertoy.com/view/ld2yDD
-- Tunnel / Warp Speed (WebGL): inspired by Shadertoy shader "Disco tunnel" by WAHa_06x36 (2018-05-08) https://www.shadertoy.com/view/XstfzB
 
 ## Add a new visualizer
 - Create a JS module in static/js/visualizers/ exporting a class with static id/name/renderer and the lifecycle methods.

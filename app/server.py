@@ -20,8 +20,9 @@ from .audio_engine import list_input_devices, AudioEngine
 from .analysis import Analyzer
 
 VISUALIZERS = [
-    {"id": "safe_canvas2d", "name": "Safe Mode (Canvas2D)", "renderer": "2d"},
+    {"id": "safe_canvas2d", "name": "Safe Mode Oscilloscope (Canvas2D)", "renderer": "2d"},
     {"id": "plasma", "name": "Plasma (WebGL2 Multipass)", "renderer": "webgl"},
+    {"id": "tunnel", "name": "Tunnel / Warp Speed (WebGL2 Multipass)", "renderer": "webgl"},
 ]
 VISUALIZER_IDS = {v["id"] for v in VISUALIZERS}
 
