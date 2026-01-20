@@ -7,6 +7,7 @@ in vec2 v_uv;
 out vec4 fragColor;
 
 uniform float u_time;
+// Audio-reactive inputs (fed from frame.* by MultiPassWebGL2).
 uniform float u_energy;
 uniform float u_bass;
 uniform float u_high;
@@ -24,8 +25,10 @@ vec3 palette(float t){
 void main(){
   vec2 uv = v_uv * 2.0 - 1.0;
   uv.x *= u_aspect;
+  uv *= 1.11;  // slight zoom out to reduce edge outside canvas
 
   float t = u_time;
+  // Audio remap: lift low values so quiet audio still drives motion/brightness.
   float energy = sqrt(clamp(u_energy, 0.0, 1.0));
   float bass = sqrt(clamp(u_bass, 0.0, 1.0));
   float high = sqrt(clamp(u_high, 0.0, 1.0));
@@ -33,7 +36,9 @@ void main(){
 
   float r = length(uv);
   float a = atan(uv.y, uv.x);
-  a += 0.9 * sin(r * 3.0 - t * 1.2) * (0.25 + 0.85 * energy);
+  // energy: increases angular wobble amplitude (more rotation-like warp).
+  a += 0.9 * sin(r * 3.0 - t * 1.2) * (0.25 + 0.85 * energy + 0.6 * bass);
+  // high: sharpens radial warp and adds higher-frequency motion.
   r += 0.2 * sin(a * 6.0 + t * 0.8) * (0.2 + 1.2 * high);
 
   vec2 q = vec2(cos(a), sin(a)) * r;
@@ -45,6 +50,7 @@ void main(){
 
   float glow = smoothstep(0.2, 0.95, abs(v));
   float pulses = 0.5 + 0.5 * sin(t * 2.0 + v * 4.0);
+  // high: leans toward pulsing detail vs. smooth glow.
   float k = mix(glow, pulses, 0.35 + 0.35 * high);
 
   vec3 col = palette(v * 0.35 + t * 0.05);
@@ -53,12 +59,15 @@ void main(){
 
   float vig = smoothstep(1.2, 0.2, r);
   col *= vig;
+  // bass: overall brightness lift.
   col *= 0.85 + 0.6 * bass;
-  col *= (1.25 + 0.35 * g);
+  // gain: overall intensity boost (useful for quiet sources).
+  col *= (1.81125 + 0.646875 * g);
 
   float lum = max(col.r, max(col.g, col.b));
+  // energy: raises visibility floor; gain: extra transparency boost.
   float alpha = smoothstep(0.015, 0.2, lum) * clamp(0.45 + 0.6 * energy, 0.0, 1.0);
-  alpha *= (1.10 + 0.20 * g);
+  alpha *= (1.4705625 + 0.3061875 * g);
   alpha = clamp(alpha, 0.0, 1.0);
   fragColor = vec4(col, alpha);
 }
@@ -153,6 +162,7 @@ export class PlasmaWebGL2MP {
       frameIndex = this._frame;
     }
 
+    // frame.{energy,bass,high,gain} drive the shader via MultiPassWebGL2 uniforms.
     this.mp.render(frame, t, dt, frameIndex);
   }
 
