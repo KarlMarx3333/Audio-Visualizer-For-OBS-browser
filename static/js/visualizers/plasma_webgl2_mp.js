@@ -10,6 +10,7 @@ uniform float u_time;
 uniform float u_energy;
 uniform float u_bass;
 uniform float u_high;
+uniform float u_gain;
 uniform float u_aspect;
 
 vec3 palette(float t){
@@ -25,9 +26,10 @@ void main(){
   uv.x *= u_aspect;
 
   float t = u_time;
-  float energy = u_energy;
-  float bass = u_bass;
-  float high = u_high;
+  float energy = sqrt(clamp(u_energy, 0.0, 1.0));
+  float bass = sqrt(clamp(u_bass, 0.0, 1.0));
+  float high = sqrt(clamp(u_high, 0.0, 1.0));
+  float g = clamp(u_gain, 0.2, 4.0);
 
   float r = length(uv);
   float a = atan(uv.y, uv.x);
@@ -52,9 +54,12 @@ void main(){
   float vig = smoothstep(1.2, 0.2, r);
   col *= vig;
   col *= 0.85 + 0.6 * bass;
+  col *= (1.25 + 0.35 * g);
 
   float lum = max(col.r, max(col.g, col.b));
-  float alpha = smoothstep(0.02, 0.18, lum) * clamp(0.4 + 0.6 * energy, 0.0, 1.0);
+  float alpha = smoothstep(0.015, 0.2, lum) * clamp(0.45 + 0.6 * energy, 0.0, 1.0);
+  alpha *= (1.10 + 0.20 * g);
+  alpha = clamp(alpha, 0.0, 1.0);
   fragColor = vec4(col, alpha);
 }
 `;
