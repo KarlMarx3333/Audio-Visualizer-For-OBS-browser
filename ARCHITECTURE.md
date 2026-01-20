@@ -1,6 +1,21 @@
 # Architecture
 ObsVizHost is a Windows tray application that captures microphone input, analyzes it in real time, and serves a local FastAPI web UI plus a WebSocket audio stream for OBS visualizers (stable `/render` and per-visualizer `/v/<name>`). At runtime it wires together a tray UI (`pystray`), an audio capture loop (`sounddevice`), an analysis worker (`numpy` FFT), a state store, and a local HTTP/WebSocket server (`uvicorn` + `FastAPI`), while the browser UI and visualizers live in `static/`.
 
+## v2-clean direction (staged plan)
+- Stage 1: v2-only registry, Safe Canvas2D fallback, strict error surfacing + auto-fallback.
+- Stage 2: WebGL2-only fullscreen triangle multipass engine (GLSL300), BufferA/B/C + Image, optional feedback ping-pong, RGBA16F→RGBA8 fallback, built-in uniforms + audio textures.
+- Stage 3: port order: plasma → tunnel → feedback → fractal_torus → membrane_vortex.
+- Stage 4: audio contract cleanup (Python owns smoothing/AGC, add transient/onset scalar).
+- Stage 5: categories + compositing policy (overlay vs background, alpha rules).
+- Stage 6: hard ones later (Milkdrop fullscreen multipass later; Swarm stays custom until rewritten).
+
+## Guardrails (non-negotiables)
+- dt-invariant behavior (decays/advects scale with dt).
+- no per-frame allocations in hot paths.
+- no per-frame shader compile/link/getUniformLocation.
+- no silent error swallowing; failures visible on-screen + console, auto-fallback to Safe Mode.
+- overlay-safe alpha by default (no accidental opaque clears).
+
 ## Quick start mental model
 - `python -m app` (or `python -m app.main`) calls `main()` in `app/main.py` via `app/__main__.py`.
 - `main()` loads config from `app/config.py`, initializes `StateStore`, and starts `AudioEngine`.
@@ -32,21 +47,11 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 │       ├── ws_client.js
 │       ├── visualizers/
 │       │   ├── registry.js
-│       │   ├── spectrum2d.js
-│       │   ├── oscilloscope2d.js
-│       │   ├── spectrogram2d.js
-│       │   ├── vectorscope2d.js
-│       │   ├── chroma_ring2d.js
-│       │   ├── plasma_webgl.js
-│       │   ├── feedback_webgl.js
-│       │   ├── tunnel_webgl.js
-│       │   ├── particle_swarm_webgl2.js
-│       │   ├── fractal_torus_webgl.js
-│       │   ├── membrane_vortex_webgl2.js
-│       │   ├── milkdrop_webgl2.js
+│       │   ├── safe_canvas2d.js
+│       │   └── plasma_webgl2_mp.js
 │       └── webgl/
 │           ├── util.js
-│           └── multipass.js
+│           └── multipass_webgl2.js
 ├── Demo/
 │   ├── chroma_ring_demo.png
 │   ├── feedback_demo.png
@@ -77,30 +82,30 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 - **State store** Purpose: shared, thread-safe snapshot of app status and metrics; Key files: `app/state.py`; Public interfaces / classes: `StateStore`, `AppState`, `Metrics`; Depends on: `threading`, `dataclasses`; Used by: `main()` monitor thread, `TrayApp`, `create_app`.
 - **HTTP/WebSocket server** Purpose: serve UI assets and stream analysis frames; Key files: `app/server.py`; Public interfaces / classes: `create_app`, `ServerThread`, `VISUALIZERS`; Depends on: `FastAPI`, `uvicorn`, `StateStore`, `Analyzer`, `AudioEngine`; Used by: `app/main.py`, browser UI in `static/`. Provides `/render` (stable OBS URL) and `/v/{name}` (fixed visualizer links).
 - **Tray UI** Purpose: native tray icon and menus for device/visualizer selection plus the Audio Tuning window (gain + visual smoothing); Key files: `app/tray.py`; Public interfaces / classes: `TrayApp`; Depends on: `pystray`, `PIL`, `StateStore`, `AudioEngine`, `VISUALIZERS`, optional `tkinter`; Used by: `app/main.py`.
-- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`, `static/js/webgl/util.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `Spectrum2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source. `static/visualizer.html` is the engine loop: it owns timing (`frame.dt`, `frame.t`), canvas sizing, and visualizer switching (it replaces the canvas when switching renderer types or between WebGL visualizers to avoid context conflicts). It pulls `gain` and `visual_smoothing` from `/api/state`, applies client-side smoothing, builds a stable per-frame payload, and follows the server-selected visualizer when loaded via `/render`. Embed mode (`?embed=1`) hides the topbar and keeps a transparent background; the error badge remains visible. In debug mode (`?debug=1`), it checks for visualizers mutating shared audio buffers.
+- **Browser UI and visualizers** Purpose: show status page and render audio visualizers; Key files: `static/index.html`, `static/visualizer.html`, `static/js/ws_client.js`, `static/js/visualizers/*.js`, `static/js/webgl/util.js`; Public interfaces / classes: `connectAudioWS`, `registry`, visualizer classes (e.g., `SafeCanvas2D`); Depends on: REST endpoints and `/ws/audio`; Used by: end users and OBS Browser Source. `static/visualizer.html` is the engine loop: it owns timing (`frame.dt`, `frame.t`), canvas sizing, and visualizer switching (it replaces the canvas when switching renderer types or between WebGL visualizers to avoid context conflicts). It pulls `gain` and `visual_smoothing` from `/api/state`, applies client-side smoothing, builds a stable per-frame payload, and follows the server-selected visualizer when loaded via `/render`. Embed mode (`?embed=1`) hides the topbar and keeps a transparent background; the error badge remains visible, and errors surface in an on-screen panel. In debug mode (`?debug=1`), it checks for visualizers mutating shared audio buffers.
 
 ## Visualizer contract (client-side)
 - Visualizers are ES modules in `static/js/visualizers/` that export a class with `static id`, `static name`, and `static renderer` (`"2d"` or `"webgl"`), plus `constructor(canvas)` and `onFrame(frame)`. Optional lifecycle hooks: `onResize(width, height, dpr)` and `destroy()`.
-- `static/js/visualizers/registry.js` registers visualizer classes. `createVisualizer()` falls back to `"spectrum"` if an ID is unknown.
+- `static/js/visualizers/registry.js` registers visualizer classes. `createVisualizer()` falls back to `"safe_canvas2d"` if an ID is unknown.
 - `static/visualizer.html` owns the render loop and calls `viz.onFrame(frame)` each animation frame; visualizers should treat this as their update tick (no separate RAF loop needed).
 - Visualizers should animate using `frame.dt` (seconds) and `frame.t` (seconds); do not derive dt from `frame.ts`.
-- WebGL visualizers manage their own GL resources (programs, textures, FBOs). Some use a multipass feedback pattern (BufferA + Image) with ping-pong targets, e.g. `static/js/visualizers/fractal_torus_webgl.js` and `static/js/visualizers/feedback_webgl.js`.
+- WebGL visualizers manage their own GL resources (programs, textures, FBOs). v2 ports should use the WebGL2 multipass engine where possible.
 - The `frame` payload passed to visualizers includes:
   - `frameId`, `ts` (raw source timestamp), `tsMs` (best-effort milliseconds)
   - `dt` (seconds), `t` (seconds), `time = { t, dt }`
   - `viewport = { w, h, dpr }`, plus `width`, `height`, `dpr`
   - `channels`, `rms`, `peak`, `corr`
+  - `bass`, `mid`, `high`, `energy` (0..1 scalars)
   - `spectrum` (smoothed), `wave` (mono, smoothed), `waveLR` (stereo, smoothed or `null`)
   - `gain`, `samplerate`, `fftSize`, `overlay` (true when `?embed=1`)
 - The smoothed arrays are reused; visualizers must treat `spectrum`, `wave`, and `waveLR` as read-only. Debug mode (`?debug=1`) detects mutations.
-- `viz.onFrame()` is wrapped in try/catch; errors show a persistent on-screen warning badge (short icon in embed) and after 3 consecutive failures the host falls back to Spectrum on the next frame.
+- `viz.onFrame()` is wrapped in try/catch; errors show a persistent on-screen error panel/badge and auto-fallback to Safe Mode.
 
-## Multi-pass (Shadertoy-style) pipeline
-Helper: `static/js/webgl/multipass.js` (used by `static/js/visualizers/feedback_webgl.js` and `static/js/visualizers/fractal_torus_webgl.js`).
-It builds named passes (A/B/C/Image aliases, or BufferA/BufferB/BufferC/Image), with optional feedback ping-pong per pass and per-pass scale.
-Built-in uniforms can be injected per pass: `u_res`, `u_time` (optionally wrapped), `u_dt`, `u_frame`.
-Texture bindings support: previous pass feedback (`kind: "prev"`), pass outputs (`kind: "pass"`), and audio texture (`kind: "audio"`).
-Audio texture is a 1D RGBA row with built-in AGC/boost.
+## Multi-pass (v2 WebGL2) pipeline
+Helper: `static/js/webgl/multipass_webgl2.js`.
+It builds named passes (BufferA/BufferB/BufferC/Image) with optional feedback ping-pong per pass and per-pass scale.
+Key traits: WebGL2 + GLSL300, fullscreen triangle via `gl_VertexID`, cached uniform locations, RGBA16F→RGBA8 fallback.
+Built-in uniforms include `u_time`, `u_dt`, `u_frame`, `u_resolution`, `u_aspect`, audio scalars (`u_energy`, etc.), and audio textures (`u_specTex`, `u_waveTex`).
 
 ## Data flow
 Primary happy path: audio input is captured, analyzed, and streamed to the browser.
@@ -128,7 +133,7 @@ Visualizer selection updates from the tray or `/api/visualizer` update `StateSto
 - To add a new setting: add it to `AppConfig`, update `clamp()` if needed, and update `main()`/`StateStore`/API handlers and UI fields that expose it.
 
 ## Extensibility points
-- Add a new visualizer: create a JS class in `static/js/visualizers/`, register it in `static/js/visualizers/registry.js`, and add to `VISUALIZERS` in `app/server.py` to expose it in the tray/UI.
+- Add a new visualizer: create a JS class in `static/js/visualizers/`, register it in `static/js/visualizers/registry.js`, and update `VISUALIZERS` in `app/server.py` to keep the server list in sync.
 - Add new analysis metrics: extend `Analyzer` in `app/analysis.py`, wire values into `StateStore` and `app/server.py`, and update `static/js/ws_client.js` parsing and the visualizer UI.
 - Add REST endpoints or WebSocket variants: extend `create_app()` in `app/server.py` and update the browser UI accordingly.
 - Add new tray actions: update `TrayApp` menu builders and handlers in `app/tray.py`.
@@ -138,5 +143,4 @@ Visualizer selection updates from the tray or `/api/visualizer` update `StateSto
 - Runtime validation is manual via `python -m app` and the browser UI.
 
 ## Known gaps / TODOs
-- Error handling is mostly silent (many `except Exception: pass` blocks), which can hide real failures; see `app/audio_engine.py`, `app/main.py`, and `app/server.py`.
 - There is no test harness or smoke test automation; the only guidance is in `README.md`.

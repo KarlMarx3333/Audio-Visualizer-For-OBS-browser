@@ -1,128 +1,93 @@
 # ObsVizHost (Tray + Localhost Visualizers for OBS)
 
-Tray app that captures **mic input**, computes analysis, and serves a **localhost visualizer page** for OBS Browser Source.
+OBS-focused audio visualizer host (v2-clean rewrite): v2-only registry, Safe Mode fallback, and a WebGL2 multipass engine.
 
-## Install (Windows PowerShell)
+## Current v2-clean status
+- v2-only visualizer list (Safe Mode + Plasma).
+- Safe Mode Canvas2D fallback with visible errors and auto-fallback.
+- WebGL2 multipass engine (GLSL300, fullscreen triangle, RGBA16F->RGBA8 fallback).
+- Plasma ported to multipass and audio-reactive.
+
+## Getting Started
+Install dependencies (Windows PowerShell):
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-## Run
+Run the server:
 ```powershell
 python -m app.main
 ```
 
-A tray icon appears. Use **Open UI** to open the control page, or select visualizers/devices from the tray to change the active visualizer for `/render` clients.
+Open in a browser:
+- http://127.0.0.1:8787/ (control page)
+- http://127.0.0.1:8787/render (interactive preview)
+
+OBS Browser Source:
+- Overlay: http://127.0.0.1:8787/render?embed=1
+- Background: http://127.0.0.1:8787/render
+
+Direct visualizer links:
+- http://127.0.0.1:8787/v/safe_canvas2d?embed=1
+- http://127.0.0.1:8787/v/plasma?embed=1
 
 ## Audio tuning (tray)
-Use the tray menu **Audio Tuning...** to adjust **Gain** (0.2..4.0) and **Visual Smoothing** (0.0..0.95).  
-Values persist in `config.json` and apply live, including OBS embed mode.  
-The Gain/Smoothing sliders in the visualizer UI are read-only and mirror the tray values.
+Use the tray menu Audio Tuning... to adjust Gain (0.2..4.0) and Visual Smoothing (0.0..0.95).
+Values persist in config.json and apply live. The Gain/Smoothing sliders in the visualizer UI are read-only and mirror the tray values.
 
-## OBS Browser Source (stable URL)
-Use the stable endpoint so OBS never needs a new URL:
-- `http://127.0.0.1:8787/render?embed=1`
-
-Interactive preview:
-- `http://127.0.0.1:8787/render`
-
-Direct, fixed visualizer links (no auto-switch):
-- `http://127.0.0.1:8787/v/spectrum?embed=1`
-- `http://127.0.0.1:8787/v/oscilloscope?embed=1`
-- `http://127.0.0.1:8787/v/spectrogram?embed=1`
-- `http://127.0.0.1:8787/v/vectorscope?embed=1`
-- `http://127.0.0.1:8787/v/chroma?embed=1`
-- `http://127.0.0.1:8787/v/plasma?embed=1`
-- `http://127.0.0.1:8787/v/feedback?embed=1`
-- `http://127.0.0.1:8787/v/tunnel?embed=1`
-- `http://127.0.0.1:8787/v/swarm?embed=1`
-- `http://127.0.0.1:8787/v/fractal_torus?embed=1`
-- `http://127.0.0.1:8787/v/membrane_vortex?embed=1`
-- `http://127.0.0.1:8787/v/milkdrop?embed=1`
+## Guardrails (non-negotiables)
+- dt-invariant behavior (decays/advects scale with dt).
+- no per-frame allocations in hot paths.
+- no per-frame shader compile/link/getUniformLocation.
+- no silent error swallowing; failures visible on-screen + console, auto-fallback to Safe Mode.
+- overlay-safe alpha by default (no accidental opaque clears).
 
 ## Visualizer engine contract
-Visualizers are ES modules registered in `static/js/visualizers/registry.js` with a class that implements:
-- `constructor(canvas)`
-- `onResize(width, height, dpr)` (optional)
-- `onFrame(frame)`
-- `destroy()` (optional)
+Visualizers are ES modules registered in static/js/visualizers/registry.js with a class implementing:
+- constructor(canvas)
+- onResize(width, height, dpr) (optional)
+- onFrame(frame)
+- destroy() (optional)
 
-The host (`static/visualizer.html`) owns timing and passes a stable `frame` object each tick. Key fields and units:
-- `dt` (seconds), `t` (seconds), and `time = { t, dt }`
-- `viewport = { w, h, dpr }` plus `width`, `height`, `dpr` (backbuffer pixels)
-- `overlay` (true when `?embed=1`)
-- `spectrum`, `wave`, `waveLR` (smoothed audio arrays, read-only)
-- `gain`, `samplerate`, `fftSize`, `rms`, `peak`, `corr`
+The host (static/visualizer.html) owns timing and passes a stable frame object each tick. Key fields and units:
+- dt (seconds), t (seconds), and time = { t, dt }
+- viewport = { w, h, dpr } plus width, height, dpr (backbuffer pixels)
+- overlay (true when ?embed=1)
+- spectrum, wave, waveLR (smoothed audio arrays, read-only)
+- bass, mid, high, energy (0..1 scalars)
+- gain, samplerate, fftSize, rms, peak, corr
 
-Do **not** compute dt from `ts`; always use `frame.dt`.
+Do not compute dt from ts; always use frame.dt.
 
-## Multi-pass (Shadertoy-style)
-This repo includes a small multi-pass helper at `static/js/webgl/multipass.js` for Shadertoy-style pipelines (BufferA/B/C + Image aliases).
-It supports per-pass feedback ping-pong, per-pass scale, built-in uniforms (`u_res`, `u_time` with optional wrap, `u_dt`, `u_frame`), and an audio texture binding (`u_audio`) with built-in AGC.
-Visualizers currently using it: `static/js/visualizers/feedback_webgl.js`, `static/js/visualizers/fractal_torus_webgl.js`.
+## WebGL2 multipass engine
+The multipass engine lives at static/js/webgl/multipass_webgl2.js and supports BufferA/B/C + Image passes.
+It is WebGL2-only (GLSL300), uses a fullscreen triangle, caches uniform locations, and falls back from RGBA16F to RGBA8 when needed.
+Built-in uniforms include u_time, u_dt, u_frame, u_resolution, u_aspect, audio scalars (u_energy, etc.), and audio textures (u_specTex, u_waveTex).
 
-## Debugging
-- `?debug=1` enables mutation detection and exposes detailed error info.
-- Errors show a persistent on-screen warning badge; embed mode uses a small icon and auto-falls back to Spectrum after repeated failures.
+## Staged plan (v2-clean)
+- Stage 1: v2-only registry, Safe Canvas2D fallback, strict error surfacing + auto-fallback.
+- Stage 2: WebGL2-only fullscreen triangle multipass engine (GLSL300), BufferA/B/C + Image, optional feedback ping-pong, RGBA16F->RGBA8 fallback, built-in uniforms + audio textures.
+- Stage 3: port order: plasma -> tunnel -> feedback -> fractal_torus -> membrane_vortex.
+- Stage 4: audio contract cleanup (Python owns smoothing/AGC, add transient/onset scalar).
+- Stage 5: categories + compositing policy (overlay vs background, alpha rules).
+- Stage 6: hard ones later (Milkdrop fullscreen multipass later; Swarm stays custom until rewritten).
 
-## Included visualizers Demos
+## Troubleshooting
+- Errors show in the on-screen error panel and in the browser console.
+- Safe Mode activates on any visualizer failure; if you see Safe Mode, check the error panel/console.
+- If WebSocket parsing fails, you will see a console error and the error panel will show the cause.
 
-### Particle Swarm / Explosions (WebGL2)
-![Particle Swarm](Demo/particle_swarm_demo.png)
-
-### Tunnel / Warp Speed (WebGL)
-![Tunnel / Warp Speed](Demo/tunnel_webgl_demo.webp)
-
-### Feedback Mirror (WebGL)
-![Feedback](Demo/feedback_demo.png)
-
-### Plasma (WebGL)
-![Plasma](Demo/plasma_demo.png)
-
-### Chroma Ring
-![Chroma Ring](Demo/chroma_ring_demo.png)
-
-### Vectorscope
-![Vectorscope](Demo/vectorscope_demo.png)
-
-### Spectrogram
-![Spectrogram](Demo/spectrogram_demo.png)
-
-### Oscilloscope
-![Oscilloscope](Demo/oscilloscope_demo.png)
-
-### Spectrum
-![Spectrum](Demo/spectrum_demo.png)
-
-### Fractal Torus Tunnel (WebGL)
-![Fractal Torus Tunnel](Demo/fractal%20torus_demo.png)
-
-### Neon Membrane Vortex
-![Neon Membrane Vortex](Demo/membrane_demo.png)
-
-### Milkdrop-ish Warp Reactor (WebGL2)
-![Milkdrop-ish Warp Reactor](Demo/milkdrop_demo.png)
+## Legacy demos
+Demo/ contains legacy visuals from pre-v2 and is not representative of v2-clean.
 
 ## Shader credits / attributions
-- Fractal Torus Tunnel (WebGL): adapted from Shadertoy shader "Fractal Toras Tunnel"
-  Created by netgrind (2017-05-16) https://www.shadertoy.com/view/ld2yDD
-- Tunnel / Warp Speed (WebGL): inspired by Shadertoy shader "Disco tunnel"
-  Created by WAHa_06x36 (2018-05-08) https://www.shadertoy.com/view/XstfzB
-
+Legacy references for planned ports:
+- Fractal Torus Tunnel (WebGL): adapted from Shadertoy shader "Fractal Toras Tunnel" by netgrind (2017-05-16) https://www.shadertoy.com/view/ld2yDD
+- Tunnel / Warp Speed (WebGL): inspired by Shadertoy shader "Disco tunnel" by WAHa_06x36 (2018-05-08) https://www.shadertoy.com/view/XstfzB
 
 ## Add a new visualizer
-1) Create `static/js/visualizers/myviz.js` exporting a class:
-```js
-export class MyViz {
-  static id = "myviz";
-  static name = "My Viz";
-  static renderer = "2d"; // or "webgl"
-  constructor(canvas){}
-  onFrame(frame){}
-  destroy(){}
-}
-```
-2) Register it in `static/js/visualizers/registry.js`.
-3) (Optional) Add it to `VISUALIZERS` in `app/server.py` to appear in tray menu and index page.
+- Create a JS module in static/js/visualizers/ exporting a class with static id/name/renderer and the lifecycle methods.
+- Register it in static/js/visualizers/registry.js.
+- Update VISUALIZERS in app/server.py to keep the server list in sync.
