@@ -48,6 +48,11 @@ export class Oscilloscope2D {
     this._label2 = "OSCILLOSCOPE2D";
     this._labelFont = "12px sans-serif";
     this._labelFontSmall = "10px sans-serif";
+    this._debug = false;
+    if (typeof window !== "undefined") {
+      const qs = new URLSearchParams(window.location.search || "");
+      this._debug = qs.get("debug") === "1";
+    }
     if (this.ctx) {
       this.ctx.lineJoin = "round";
       this.ctx.lineCap = "round";
@@ -232,7 +237,7 @@ export class Oscilloscope2D {
     const kickLevel = this._kick;
     const g = userGain * this._agc;
 
-    if (spectrum && spectrum.length > 0) {
+    if (this._debug && spectrum && spectrum.length > 0) {
       const specLen = spectrum.length | 0;
       let bars = Math.floor(cssW / 14);
       if (bars < 24) bars = 24;
@@ -323,17 +328,19 @@ export class Oscilloscope2D {
       ctx.restore();
     }
 
-    ctx.save();
-    ctx.globalCompositeOperation = "source-over";
-    ctx.globalAlpha = 0.9;
-    ctx.fillStyle = LABEL_COLOR;
-    ctx.font = this._labelFont;
-    ctx.textBaseline = "top";
-    ctx.fillText(this._label, 8, 8);
-    ctx.font = this._labelFontSmall;
-    ctx.globalAlpha = 0.6;
-    ctx.fillText(this._label2, 8, 22);
-    ctx.restore();
+    if (this._debug) {
+      ctx.save();
+      ctx.globalCompositeOperation = "source-over";
+      ctx.globalAlpha = 0.9;
+      ctx.fillStyle = LABEL_COLOR;
+      ctx.font = this._labelFont;
+      ctx.textBaseline = "top";
+      ctx.fillText(this._label, 8, 8);
+      ctx.font = this._labelFontSmall;
+      ctx.globalAlpha = 0.6;
+      ctx.fillText(this._label2, 8, 22);
+      ctx.restore();
+    }
   }
 
   destroy() {
