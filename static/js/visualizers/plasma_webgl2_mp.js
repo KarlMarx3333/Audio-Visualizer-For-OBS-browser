@@ -29,17 +29,17 @@ void main(){
 
   float t = u_time;
   // Audio remap: lift low values so quiet audio still drives motion/brightness.
-  float energy = sqrt(clamp(u_energy, 0.0, 1.0));
-  float bass = sqrt(clamp(u_bass, 0.0, 1.0));
-  float high = sqrt(clamp(u_high, 0.0, 1.0));
+  float energy = pow(clamp(u_energy, 0.0, 1.0), 0.35);
+  float bass = pow(clamp(u_bass, 0.0, 1.0), 0.35);
+  float high = pow(clamp(u_high, 0.0, 1.0), 0.35);
   float g = clamp(u_gain, 0.2, 4.0);
 
   float r = length(uv);
   float a = atan(uv.y, uv.x);
   // energy: increases angular wobble amplitude (more rotation-like warp).
-  a += 0.9 * sin(r * 3.0 - t * 1.2) * (0.25 + 0.85 * energy + 0.6 * bass);
+  a += 1.1 * sin(r * 3.0 - t * 1.2) * (0.15 + 1.05 * energy + 0.8 * bass);
   // high: sharpens radial warp and adds higher-frequency motion.
-  r += 0.2 * sin(a * 6.0 + t * 0.8) * (0.2 + 1.2 * high);
+  r += 0.25 * sin(a * 6.0 + t * 0.8) * (0.15 + 1.5 * high);
 
   vec2 q = vec2(cos(a), sin(a)) * r;
   float v = 0.0;
