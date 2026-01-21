@@ -4,7 +4,7 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 ## v2-clean direction (staged plan)
 - Stage 1: v2-only registry, Safe Mode Oscilloscope (Canvas2D) fallback, strict error surfacing + auto-fallback.
 - Stage 2: WebGL2-only fullscreen triangle multipass engine (GLSL300), BufferA/B/C + Image, optional feedback ping-pong, RGBA16F→RGBA8 fallback, built-in uniforms + audio textures.
-- Stage 3: port order: plasma → tunnel → feedback → fractal_torus → membrane_vortex.
+- Stage 3: port order: plasma → tunnel → feedback (done), next: fractal_torus → membrane_vortex.
 - Stage 4: audio contract cleanup (Python owns smoothing/AGC, add transient/onset scalar).
 - Stage 5: categories + compositing policy (overlay vs background, alpha rules).
 - Stage 6: hard ones later (Milkdrop fullscreen multipass later; Swarm stays custom until rewritten).
@@ -51,23 +51,17 @@ These constraints exist because OBS Browser Source (CEF) can run at variable FPS
 │       ├── visualizers/
 │       │   ├── registry.js
 │       │   ├── oscilloscope2d.js
-│       │   └── plasma_webgl2_mp.js
+│       │   ├── plasma_webgl2_mp.js
+│       │   ├── tunnel_webgl2_mp.js
+│       │   └── feedback_webgl2_mp.js
 │       └── webgl/
 │           ├── util.js
 │           └── multipass_webgl2.js
 ├── Demo/
-│   ├── chroma_ring_demo.png
-│   ├── feedback_demo.png
-│   ├── fractal torus_demo.png
-│   ├── membrane_demo.png
-│   ├── milkdrop_demo.png
-│   ├── oscilloscope_demo.png
-│   ├── particle_swarm_demo.png
-│   ├── plasma_demo.png
-│   ├── spectrogram_demo.png
-│   ├── spectrum_demo.png
-│   ├── tunnel_webgl_demo.webp
-│   └── vectorscope_demo.png
+│   ├── feedback_demo.webp
+│   ├── oscilloscope_2D_demo.webp
+│   ├── plasma_demo.webp
+│   └── tunnel_warpspeed_demo.webp
 ├── requirements.txt
 ├── README.md
 ├── Repo_zipper.ps1
