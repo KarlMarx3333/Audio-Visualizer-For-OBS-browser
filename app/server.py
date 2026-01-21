@@ -23,6 +23,7 @@ VISUALIZERS = [
     {"id": "safe_canvas2d", "name": "Safe Mode Oscilloscope (Canvas2D)", "renderer": "2d"},
     {"id": "plasma", "name": "Plasma (WebGL2 Multipass)", "renderer": "webgl"},
     {"id": "tunnel", "name": "Tunnel / Warp Speed (WebGL2 Multipass)", "renderer": "webgl"},
+    {"id": "feedback", "name": "Feedback Mirror (WebGL2 Multipass)", "renderer": "webgl"},
 ]
 VISUALIZER_IDS = {v["id"] for v in VISUALIZERS}
 
