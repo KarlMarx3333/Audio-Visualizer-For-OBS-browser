@@ -4,10 +4,10 @@ ObsVizHost is a Windows tray application that captures microphone input, analyze
 ## v2-clean direction (staged plan)
 - Stage 1: v2-only registry, Safe Mode Oscilloscope (Canvas2D) fallback, strict error surfacing + auto-fallback.
 - Stage 2: WebGL2-only fullscreen triangle multipass engine (GLSL300), BufferA/B/C + Image, optional feedback ping-pong, RGBA16F→RGBA8 fallback, built-in uniforms + audio textures.
-- Stage 3: port order: plasma → tunnel → feedback (done), next: fractal_torus → membrane_vortex.
+- Stage 3: port order: plasma → tunnel → feedback (done), next: fractal_torus.
 - Stage 4: audio contract cleanup (Python owns smoothing/AGC, add transient/onset scalar).
 - Stage 5: categories + compositing policy (overlay vs background, alpha rules).
-- Stage 6: hard ones later (Milkdrop fullscreen multipass later; Swarm stays custom until rewritten).
+- Stage 6: hard ones later (Swarm stays custom until rewritten).
 
 ## Guardrails (non-negotiables)
 - dt-invariant behavior (decays/advects scale with dt).

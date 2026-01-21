@@ -91,26 +91,7 @@ const SAFE_VIZ_ID = "safe_canvas2d";
 const qs = new URLSearchParams(location.search);
 const embed = qs.get("embed") === "1";
 const debug = qs.get("debug") === "1";
-const mdMaskRaw = debug ? (qs.get("md_mask") || "") : "";
-let mdMask = 0;
-if (mdMaskRaw) {
-  const v = mdMaskRaw.toLowerCase();
-  if (/^\d+$/.test(v)) {
-    mdMask = parseInt(v, 10) | 0;
-  } else {
-    switch (v) {
-      case "warp": mdMask = 1; break;
-      case "rays": mdMask = 2; break;
-      case "shapes": mdMask = 3; break;
-      case "sparkles": mdMask = 4; break;
-      case "add": mdMask = 5; break;
-      case "reactor": mdMask = 6; break;
-      case "spawned": mdMask = 7; break;
-      case "all": mdMask = 0; break;
-      default: mdMask = 0; break;
-    }
-  }
-}
+
 
 const topbar = document.getElementById("topbar");
 if(embed){
@@ -176,7 +157,7 @@ function resize(){
 window.addEventListener("resize", resize);
 document.getElementById("fit").addEventListener("click", resize);
 
-registry.ensureLoaded();
+await registry.ensureLoaded();
 
 for(const v of registry.list()){
   vizSel.appendChild(new Option(v.name + " ("+v.renderer+")", v.id));
@@ -220,10 +201,6 @@ if (debugLog) {
     "white-space:pre-wrap;pointer-events:auto;";
   debugLog.textContent = "[debug log]\n";
   document.body.appendChild(debugLog);
-  if (mdMaskRaw) {
-    debugLogLines.push(`[mask] md_mask=${mdMaskRaw} (${mdMask})`);
-    debugLog.textContent = debugLogLines.join("\n");
-  }
 }
 
 function vizDebugLog(msg, data){
@@ -241,7 +218,7 @@ function vizDebugLog(msg, data){
   debugLog.scrollTop = debugLog.scrollHeight;
 }
 window.__vizDebugLog = debug ? vizDebugLog : null;
-window.__vizMilkdropMask = debug ? mdMask : 0;
+
 
 let vizErrorInfo = null;
 
@@ -340,7 +317,7 @@ function scheduleSafeModeFallback(){
     _pendingFallback = false;
     if(vizName === SAFE_VIZ_ID) return;
     vizSel.value = SAFE_VIZ_ID;
-    setViz(SAFE_VIZ_ID);
+    void setViz(SAFE_VIZ_ID);
   });
 }
 
@@ -368,7 +345,7 @@ function validateVizInstance(instance){
   }
 }
 
-function setViz(name){
+async function setViz(name){
   let destroyError = null;
   let destroyFailed = false;
   if(viz && typeof viz.destroy === "function"){
@@ -390,8 +367,8 @@ function setViz(name){
     replaceCanvas();
   }
 
-  const tryCreate = (id)=>{
-    const instance = createVisualizer(id, canvas);
+  const tryCreate = async (id)=>{
+    const instance = await createVisualizer(id, canvas);
     validateVizInstance(instance);
     return instance;
   };
@@ -401,7 +378,7 @@ function setViz(name){
     err = new Error(`Unknown visualizer: ${name}`);
   }else{
     try{
-      viz = tryCreate(name);
+      viz = await tryCreate(name);
     }catch(e){
       err = e;
       viz = null;
@@ -415,7 +392,7 @@ function setViz(name){
       replaceCanvas();
       let fallbackErr = null;
       try{
-        viz = tryCreate(SAFE_VIZ_ID);
+        viz = await tryCreate(SAFE_VIZ_ID);
       }catch(e){
         fallbackErr = e;
         viz = null;
@@ -457,14 +434,14 @@ async function initViz(){
     }catch(e){}
   }
   vizSel.value = vizName;
-  setViz(vizName);
+  await setViz(vizName);
 }
 
-initViz();
+await initViz();
 
 vizSel.addEventListener("change", async ()=>{
   const next = vizSel.value;
-  setViz(next);
+  await setViz(next);
   if(followServer && !embed){
     try{
       await fetch("/api/visualizer", {
@@ -483,7 +460,7 @@ async function pollState(){
     if(followServer && st.visualizer_name && st.visualizer_name !== vizName){
       if(registry.get(st.visualizer_name)){
         vizSel.value = st.visualizer_name;
-        setViz(st.visualizer_name);
+        await setViz(st.visualizer_name);
       }
     }
     if(typeof st.gain === "number"){
