@@ -7,6 +7,11 @@ const VISUALIZER_LOADERS = [
     exportName: "Vectorscope2D",
   },
   {
+    id: "chroma_ring",
+    path: "/static/js/visualizers/chroma_ring2d.js",
+    exportName: "ChromaRing2D",
+  },
+  {
     id: "plasma",
     path: "/static/js/visualizers/plasma_webgl2_mp.js",
     exportName: "PlasmaWebGL2MP",

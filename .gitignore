@@ -12,3 +12,5 @@ out/
 .DS_Store
 Thumbs.db
 app/TEMP/
+shader_kb_design_v0.2_grouped.md
+VISUALIZER_GUARDRAILS.md
