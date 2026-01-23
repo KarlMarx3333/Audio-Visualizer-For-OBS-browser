@@ -642,18 +642,27 @@ function animate(){
   let mid = 0;
   let high = 0;
   let energy = 0;
-  const specLen = spectrumRaw.length | 0;
+  const spectrum = lastSpectrum;
+  const specLen = spectrum.length | 0;
   if(specLen > 0){
-    const b1 = Math.max(1, Math.floor(specLen * 0.12));
-    let m1 = Math.floor(specLen * 0.40);
-    if(m1 <= b1) m1 = b1;
+    const maxBin = specLen - 1;
+    // Log-spaced bands over the smoothed spectrum.
+    let b1 = Math.max(1, Math.floor(specLen * 0.12));
+    let m1 = Math.max(b1 + 1, Math.floor(specLen * 0.40));
+    if(maxBin > 1){
+      const logMin = Math.log(1);
+      const logMax = Math.log(maxBin);
+      b1 = Math.max(1, Math.floor(Math.exp(logMin + (logMax - logMin) * 0.33)));
+      m1 = Math.max(b1 + 1, Math.floor(Math.exp(logMin + (logMax - logMin) * 0.66)));
+    }
+    if(b1 > specLen) b1 = specLen;
     if(m1 > specLen) m1 = specLen;
     let sumBass = 0;
     let sumMid = 0;
     let sumHigh = 0;
     let sumAll = 0;
     for(let i=0;i<specLen;i++){
-      const v = spectrumRaw[i];
+      const v = spectrum[i];
       const sv = Number.isFinite(v) ? v : 0;
       sumAll += sv;
       if(i < b1) sumBass += sv;
