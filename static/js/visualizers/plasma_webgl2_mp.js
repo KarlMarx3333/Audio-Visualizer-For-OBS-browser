@@ -27,7 +27,7 @@ void main(){
   uv.x *= u_aspect;
   uv *= 1.11;  // slight zoom out to reduce edge outside canvas
 
-  float t = u_time;
+  float t = u_time * 0.65;
   // Audio remap: lift low values so quiet audio still drives motion/brightness.
   float energy = pow(clamp(u_energy, 0.0, 1.0), 0.35);
   float bass = pow(clamp(u_bass, 0.0, 1.0), 0.35);
@@ -37,23 +37,23 @@ void main(){
   float r = length(uv);
   float a = atan(uv.y, uv.x);
   // energy: increases angular wobble amplitude (more rotation-like warp).
-  a += 1.1 * sin(r * 3.0 - t * 1.2) * (0.15 + 1.05 * energy + 0.8 * bass);
+  a += 1.0 * sin(r * 3.0 - t * 1.0) * (0.10 + 1.60 * energy + 1.10 * bass);
   // high: sharpens radial warp and adds higher-frequency motion.
-  r += 0.25 * sin(a * 6.0 + t * 0.8) * (0.15 + 1.5 * high);
+  r += 0.32 * sin(a * 6.0 + t * 0.7) * (0.10 + 2.10 * high + 0.50 * energy);
 
   vec2 q = vec2(cos(a), sin(a)) * r;
   float v = 0.0;
-  v += sin(q.x * 6.0 + t);
-  v += sin(q.y * 6.0 - t * 1.2);
-  v += sin((q.x + q.y) * 4.0 + t * 0.7);
+  v += sin(q.x * 6.0 + t * 0.8);
+  v += sin(q.y * 6.0 - t * 1.0);
+  v += sin((q.x + q.y) * 4.0 + t * 0.55);
   v /= 3.0;
 
   float glow = smoothstep(0.2, 0.95, abs(v));
-  float pulses = 0.5 + 0.5 * sin(t * 2.0 + v * 4.0);
+  float pulses = 0.5 + 0.5 * sin(t * 1.6 + v * 4.0);
   // high: leans toward pulsing detail vs. smooth glow.
   float k = mix(glow, pulses, 0.35 + 0.35 * high);
 
-  vec3 col = palette(v * 0.35 + t * 0.05);
+  vec3 col = palette(v * 0.35 + t * 0.035);
   col *= 0.65 + 0.85 * k;
   col += vec3(0.25, 0.85, 1.0) * (0.15 + 0.85 * energy) * smoothstep(0.2, 0.7, glow);
 
@@ -79,6 +79,7 @@ const PASS_SPECS = [
     fs: PLASMA_FS,
   },
 ];
+const TIME_WRAP_S = 10000;
 
 function isFiniteNumber(v) {
   return typeof v === "number" && Number.isFinite(v);
@@ -162,8 +163,9 @@ export class PlasmaWebGL2MP {
       frameIndex = this._frame;
     }
 
+    const tWrapped = TIME_WRAP_S > 0 ? (t % TIME_WRAP_S) : t;
     // frame.{energy,bass,high,gain} drive the shader via MultiPassWebGL2 uniforms.
-    this.mp.render(frame, t, dt, frameIndex);
+    this.mp.render(frame, tWrapped, dt, frameIndex);
   }
 
   destroy() {
