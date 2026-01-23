@@ -37,7 +37,7 @@ float specAt(float x){
   return texture(u_specTex, vec2(clamp(x, 0.0, 1.0), 0.5)).r;
 }
 
-// Matches the provided shadertoy-style path (sum of harmonics)
+// Matches the shadertoy-style path (sum of harmonics)
 vec2 position2(float z){
   return vec2(
     sin(z * 0.10) * 1.0 + sin(cos(z * 0.031) * 4.0) * 1.0 + sin(sin(z * 0.0091) * 3.0) * 3.0,
@@ -89,7 +89,7 @@ void main(){
 
   // Ring stack tuning
   const int STEPS = 120;
-  float spacing = 1.55;               // ring spacing in world-z
+  float spacing = 1.65;               // ring spacing in world-z
   float baseZ = floor(camZ / spacing) * spacing;
 
   // Thickness in p-space (minimum tied to pixel size)
@@ -298,8 +298,8 @@ export class TunnelWebGL2MP {
     // Make audio *obviously* affect forward velocity without breaking dt-invariance.
     const b = Math.sqrt(bass);
     const e = Math.sqrt(energy);
-    const base = 12.6;                  // "Disco tunnel" feel
-    const speed = Math.min(36, base + 19.8 * b + 7.2 * e);
+    const base = 6.6;                  // "Disco tunnel" feel
+    const speed = Math.min(36, base + 19.8 * b + 29.8 * e);
 
     this._camZ += dt * speed;
     if (this._camZ > 1e6) this._camZ -= 1e6;
