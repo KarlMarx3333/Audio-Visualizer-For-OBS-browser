@@ -117,17 +117,19 @@ void main(){
   float a = atan(p.y, p.x);
 
   // Feedback transform: zoom/rotate + drift (legacy-ish)
-  float zoom = 0.986 - 0.040*bass; // bass "breathes" the recursion
+  float zoom = 0.986 - 0.040*bass;  // bass "breathes" the recursion
   zoom = clamp(zoom, 0.803, 0.992); //(zoom, 0.986, 0.992)
   float rot  = 0.04*sin(u_time*0.55) + 0.22*(treble - 0.5) + 0.10*mid;
 
   vec2 pf = rot2(rot) * (p * zoom);
 
   // drift breaks symmetry (prevents "static ball")
-  vec2 drift = 0.028 * vec2(
+  vec2 drift_raw = 0.028 * vec2(
     sin(u_time*0.70 + bass*3.1),
     cos(u_time*0.86 + treble*3.1)
   ) * (0.10 + 0.90*energy);
+
+  vec2 drift = drift_raw * (1.0 - zoom);   // key: prevents dot-collapse when zoom≈1
 
   pf += drift;
 
@@ -135,6 +137,8 @@ void main(){
   vec2 q = pf;
   q.x /= aspect;
   vec2 uv2 = q*0.5 + 0.5;
+  // Mirror-wrap to avoid sampling the transparent border in feedback.
+  uv2 = 1.0 - abs(fract(uv2 * 0.5) * 2.0 - 1.0);
 
   // chromatic micro-shift (stronger near center like legacy)
   vec2 ca = 0.0022 * vec2(sin(u_time*1.20), cos(u_time*1.05))
@@ -199,7 +203,7 @@ void main(){
   float lift = (0.020 + 0.060*energy) * (1.0 - smoothstep(0.02, 0.08, luma));
   col += vec3(lift);
 
-  float vig = smoothstep(1.70, 0.15, r);
+  float vig = smoothstep(1.70, 0.15, r); // (1.70, 0.15, r)
   float alpha = clamp(prev.a + inj*0.65, 0.0, 1.0) * vig;
 
   fragColor = vec4(col, alpha);
