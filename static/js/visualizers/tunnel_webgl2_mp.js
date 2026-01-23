@@ -45,6 +45,12 @@ vec2 position2(float z){
   );
 }
 
+mat2 rot2(float a){
+  float s = sin(a);
+  float c = cos(a);
+  return mat2(c, -s, s, c);
+}
+
 float ngonRadius(float theta, float R, float N){
   float k = TAU / max(N, 3.0);
   float t = abs(mod(theta + 0.5*k, k) - 0.5*k);
@@ -77,15 +83,19 @@ void main(){
   float camZ = u_camZ;
   vec2 cam = position2(camZ) * bend;
 
-  // camera "steer" (derivative along z) — sells turning without warping rings
-  float dz = 0.85;
-  vec2 camF = position2(camZ + dz) * bend;
-  vec2 camB = position2(camZ - dz) * bend;
-  vec2 dcamdz = (camF - camB) / (2.0 * dz);
+  // Look direction from a longer look-ahead (smoother, avoids snaps).
+  float lookAhead = 4.0;
+  vec2 camF = position2(camZ + lookAhead) * bend;
+  vec2 dlook = (camF - cam) / max(0.001, lookAhead);
+
+  // Slow roll around the forward axis (visual flair, not steering).
+  float roll = 0.18 * sin(u_time * 0.25);
+  mat2 viewRot = rot2(roll);
+  vec2 pR = viewRot * p;
 
   // projection tuning (legacy-ish)
   float proj = 9.5 + 4.5*mid;         // bigger = stronger bend feel
-  float slip = 0.32 + 0.35*bass + 0.16*en;      // how much "steer compensation" we apply
+  float lookGain = 0.85;      // how much we aim into the turn
 
   // Ring stack tuning
   const int STEPS = 120;
@@ -112,6 +122,9 @@ void main(){
     float wZ = 0.085 * invZ / (0.45 + 0.020*screenZ);
     float nearDim = mix(0.45, 1.00, smoothstep(4.0, 22.0, screenZ));
     wZ *= nearDim;
+    // Boost distant rings so far portals stay bright/visible.
+    float farBoost = mix(1.0, 2.2, smoothstep(18.0, 80.0, screenZ));
+    wZ *= farBoost;
 
     // portal radius (classic 1/screenZ)
     float r = (0.98 + 0.08*sin(realZ*0.07)) * invZ;
@@ -119,9 +132,11 @@ void main(){
     // center offset for this slice (relative to camera)
     vec2 portal = position2(realZ) * bend;
     vec2 rel = (portal - cam);
-    vec2 c = rel * (proj * invZ) - dcamdz * slip;
+    vec2 relLook = rel - dlook * (screenZ * lookGain);
+    vec2 relR = viewRot * relLook;
+    vec2 c = relR * (proj * invZ);
 
-    vec2 q = p - c;
+    vec2 q = pR - c;
     float dist = length(q);
 
     // Far rings: circles (cheaper, closer to original vibe)
@@ -298,8 +313,8 @@ export class TunnelWebGL2MP {
     // Make audio *obviously* affect forward velocity without breaking dt-invariance.
     const b = Math.sqrt(bass);
     const e = Math.sqrt(energy);
-    const base = 6.6;                  // "Disco tunnel" feel
-    const speed = Math.min(36, base + 19.8 * b + 29.8 * e);
+    const base = 6.0;                  // "Disco tunnel" feel
+    const speed = Math.min(86, base + 24.0 * b + 36.0 * e);
 
     this._camZ += dt * speed;
     if (this._camZ > 1e6) this._camZ -= 1e6;
