@@ -22,6 +22,11 @@ const VISUALIZER_LOADERS = [
     exportName: "TunnelWebGL2MP",
   },
   {
+    id: "radial_spectrum",
+    path: "/static/js/visualizers/radial_spectrum_webgl2_mp.js",
+    exportName: "RadialSpectrumWebGL2MP",
+  },
+  {
     id: "feedback",
     path: "/static/js/visualizers/feedback_webgl2_mp.js",
     exportName: "FeedbackWebGL2MP",
