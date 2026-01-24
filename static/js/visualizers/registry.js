@@ -27,6 +27,11 @@ const VISUALIZER_LOADERS = [
     exportName: "RadialSpectrumWebGL2MP",
   },
   {
+    id: "spectrogram3d",
+    path: "/static/js/visualizers/3D_spectrogram_webgl2_mp.js",
+    exportName: "Spectrogram3DWebGL2MP",
+  },
+  {
     id: "feedback",
     path: "/static/js/visualizers/feedback_webgl2_mp.js",
     exportName: "FeedbackWebGL2MP",
