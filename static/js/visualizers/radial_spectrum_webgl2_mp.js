@@ -1,7 +1,7 @@
 import { MultiPassWebGL2 } from "/static/js/webgl/multipass_webgl2.js";
 
 /*
-Radial Spectrum (WebGL2 Multipass)
+Top/Bottom Mirrored Radial Spectrum (WebGL2 Multipass)
 
 Inspired by Shadertoy: "Radial Audio Visualizer" by Rafbeam (2018-04-21)
 https://www.shadertoy.com/view/ldtBRN
@@ -86,9 +86,11 @@ void main(){
   vec2 p = uv - 0.5;
   p.x *= u_aspect;
 
+  p.y = abs(p.y);
+
   float r = length(p);
-  float ang = atan(p.y, p.x);             // -PI..PI
-  float a01 = ang / (2.0*PI) + 0.5;       // 0..1
+  float ang = atan(p.y, p.x);             // 0..PI
+  float a01 = ang / PI;                   // 0..1 (mirrored)
 
   // Bar count: keep crisp but not too heavy
   float barsN = ${BARS_N}.0;
@@ -197,7 +199,7 @@ function sampleSpecLinear(spec, len, idx) {
 
 export class RadialSpectrumWebGL2MP {
   static id = "radial_spectrum";
-  static name = "Radial Spectrum (WebGL2 Multipass)";
+  static name = "Top/Bottom Mirrored Radial Spectrum (WebGL2 Multipass)";
   static renderer = "webgl";
 
   constructor(canvas) {
