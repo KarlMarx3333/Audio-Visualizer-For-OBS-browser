@@ -77,14 +77,14 @@ void main(){
   float sHi = specAt(0.80);
 
   // Camera + bend (mid-driven)
-  float bend = (0.14 + 0.42*mid + 0.22*en + 0.18*sMd);   // visible bend
-  bend = clamp(bend, 0.12, 0.70);
+  float bend = (0.16 + 0.55*mid + 0.32*en + 0.28*sMd);   // visible bend
+  bend = clamp(bend, 0.14, 0.95);
 
   float camZ = u_camZ;
   vec2 cam = position2(camZ) * bend;
 
   // Look direction from a longer look-ahead (smoother, avoids snaps).
-  float lookAhead = 4.0;
+  float lookAhead = 5.0;
   vec2 camF = position2(camZ + lookAhead) * bend;
   vec2 dlook = (camF - cam) / max(0.001, lookAhead);
 
@@ -95,7 +95,7 @@ void main(){
 
   // projection tuning (legacy-ish)
   float proj = 9.5 + 4.5*mid;         // bigger = stronger bend feel
-  float lookGain = 0.85;      // how much we aim into the turn
+  float lookGain = 1.10;      // how much we aim into the turn
 
   // Ring stack tuning
   const int STEPS = 120;
@@ -233,6 +233,8 @@ export class TunnelWebGL2MP {
 
     // world-z camera accumulator (dt-stable, no time*audio multiply)
     this._camZ = 0;
+    this._speed = 0;
+    this._eSm = 0;
 
     // cache custom uniform location once
     this._uCamZLoc = null;
@@ -309,13 +311,20 @@ export class TunnelWebGL2MP {
       frame.energy = energy;
     }
 
-    // Legacy-ish speed in world units (camZ in shader is world-z directly)
-    // Make audio *obviously* affect forward velocity without breaking dt-invariance.
-    const b = Math.sqrt(bass);
-    const e = Math.sqrt(energy);
-    const base = 6.0;                  // "Disco tunnel" feel
-    const speed = Math.min(86, base + 24.0 * b + 36.0 * e);
+    // Smooth, audio-driven forward speed with transient kick (dt-invariant).
+    const drive = 0.45 * energy + 0.45 * bass + 0.10 * mid;
+    const eAtk = 1 - Math.exp(-dt * 4.0);
+    this._eSm += (energy - this._eSm) * eAtk;
+    const impact = Math.max(0, energy - this._eSm);
 
+    const base = 6.0;
+    const target = base + 260.0 * Math.pow(drive, 1.35) + 150.0 * impact;
+    const atk = 1 - Math.exp(-dt * 6.0);
+    const rel = 1 - Math.exp(-dt * 2.0);
+    const k = target > this._speed ? atk : rel;
+    this._speed += (target - this._speed) * k;
+
+    const speed = Math.min(160, this._speed);
     this._camZ += dt * speed;
     if (this._camZ > 1e6) this._camZ -= 1e6;
 
