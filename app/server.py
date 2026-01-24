@@ -25,7 +25,7 @@ VISUALIZERS = [
     {"id": "chroma_ring", "name": "Chroma Ring / Pitch Classes (Canvas2D)", "renderer": "2d"},
     {"id": "plasma", "name": "Plasma (WebGL2 Multipass)", "renderer": "webgl"},
     {"id": "radial_spectrum", "name": "Radial Spectrum (WebGL2 Multipass)", "renderer": "webgl"},
-    {"id": "spectrogram3d", "name": "3D Spectrogram Dots (WebGL2 Multipass)", "renderer": "webgl"},
+    {"id": "spectrum3d", "name": "3D Spectrum Dots (WebGL2 Multipass)", "renderer": "webgl"},
     {"id": "tunnel", "name": "Tunnel / Warp Speed (WebGL2 Multipass)", "renderer": "webgl"},
     {"id": "feedback", "name": "Feedback Mirror (WebGL2 Multipass)", "renderer": "webgl"},
 ]

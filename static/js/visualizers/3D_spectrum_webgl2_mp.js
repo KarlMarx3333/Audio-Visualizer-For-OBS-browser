@@ -1,6 +1,6 @@
 import { MultiPassWebGL2 } from "/static/js/webgl/multipass_webgl2.js";
 /*
-3D Spectrogram Dots (WebGL2 Multipass)
+3D Spectrum Dots (WebGL2 Multipass)
 
 Inspired by Shadertoy: "Video Heightfield" (audio heightfield variant) by huttarl (2013-03-20)
 https://www.shadertoy.com/view/XXXXXXXX   // TODO: replace with the exact Shadertoy URL
@@ -30,7 +30,7 @@ const BAND_REF_HEADROOM = 1.6;
 const BAND_FLOOR_MIN = 0.0006;
 const BAND_FLOOR_MAX = 0.0025;
 
-const SPECTROGRAM_3D_FS = `#version 300 es
+const SPECTRUM_3D_FS = `#version 300 es
 precision highp float;
 
 in vec2 v_uv;
@@ -253,7 +253,7 @@ void main(){
 `;
 
 const PASS_SPECS = [
-  { name: "Image", fs: SPECTROGRAM_3D_FS },
+  { name: "Image", fs: SPECTRUM_3D_FS },
 ];
 
 function isFiniteNumber(v) {
@@ -287,9 +287,9 @@ function sampleSpec01(spec, len, x01) {
   return s / 2.7;
 }
 
-export class Spectrogram3DWebGL2MP {
-  static id = "spectrogram3d";
-  static name = "3D Spectrogram Dots (WebGL2 Multipass)";
+export class Spectrum3DWebGL2MP {
+  static id = "spectrum3d";
+  static name = "3D Spectrum Dots (WebGL2 Multipass)";
   static renderer = "webgl";
 
   constructor(canvas) {
