@@ -85,6 +85,7 @@ void main(){
   // Centered, aspect-correct space
   vec2 p = uv - 0.5;
   p.x *= u_aspect;
+  p = vec2(-p.y, p.x);
 
   p.y = abs(p.y);
 
