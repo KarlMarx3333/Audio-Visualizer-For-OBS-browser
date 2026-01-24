@@ -20,7 +20,7 @@ Changes vs original:
 const BANDS = 30; // keep in sync with shader BANDS
 const BAND_LOG_POWER = 2.15;
 const FREQ_MIN_HZ = 20.0;
-const FREQ_MAX_HZ = 15000.0;
+const FREQ_MAX_HZ = 18000.0;
 const BAND_AVG_RISE_TAU = 0.6;
 const BAND_AVG_FALL_TAU = 3.0;
 const BAND_AVG_SILENCE_TAU = 6.0;

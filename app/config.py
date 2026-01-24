@@ -40,6 +40,9 @@ class AppConfig:
         self.gain = float(max(0.2, min(4.0, self.gain)))
         self.visual_smoothing = float(max(0.0, min(0.95, self.visual_smoothing)))
 
+        if self.visualizer_name == "spectrogram3d":
+            self.visualizer_name = "spectrum3d"
+
         fft = int(self.fft_size)
         if fft < 256:
             fft = 256

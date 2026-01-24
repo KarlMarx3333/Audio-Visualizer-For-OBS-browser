@@ -312,7 +312,7 @@ export class TunnelWebGL2MP {
     }
 
     // Smooth, audio-driven forward speed with transient kick (dt-invariant).
-    const drive = 0.45 * energy + 0.45 * bass + 0.10 * mid;
+    const drive = 0.65 * energy + 0.65 * bass + 0.35 * mid;
     const eAtk = 1 - Math.exp(-dt * 4.0);
     this._eSm += (energy - this._eSm) * eAtk;
     const impact = Math.max(0, energy - this._eSm);

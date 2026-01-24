@@ -1,5 +1,5 @@
 import { Oscilloscope2D } from "/static/js/visualizers/oscilloscope2d.js";
-
+// Remember to add visualizer to server.py as well
 const VISUALIZER_LOADERS = [
   {
     id: "vectorscope",
@@ -25,6 +25,11 @@ const VISUALIZER_LOADERS = [
     id: "radial_spectrum",
     path: "/static/js/visualizers/radial_spectrum_webgl2_mp.js",
     exportName: "RadialSpectrumWebGL2MP",
+  },
+  {
+    id: "galaxy",
+    path: "/static/js/visualizers/galaxy_webgl2_mp.js",
+    exportName: "GalaxyWebGL2MP",
   },
   {
     id: "spectrum3d",
