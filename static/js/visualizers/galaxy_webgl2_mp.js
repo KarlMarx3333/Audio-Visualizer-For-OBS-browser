@@ -122,7 +122,7 @@ void main(){
   cameraRay(uv, ro, rd);
 
   // Thin volumetric slab around y=0 (increase H for thicker nebula).
-  float H = 0.24;           // half-thickness (world)
+  float H = 0.34;           // half-thickness (world) norm: 0.24
   float denom = rd.y;
   if (abs(denom) < 1e-4){
     fragColor = vec4(0.0);
@@ -170,7 +170,7 @@ void main(){
       float lanes = fbm3(np * 1.45 + vec3(11.0, 7.0, 3.0));
 
       // Dust lanes carve out darker streaks along arms.
-      float laneCut = 1.0 - 0.35 * pow(sat(lanes), 1.8);
+      float laneCut = 1.0 - 0.35 * pow(sat(lanes), 8.8);
 
       float density = disc * mix(0.55, 1.35, armM) * vy;
       density *= (0.25 + 1.35 * pow(sat(n), 1.9));
@@ -252,7 +252,7 @@ vec2 hash22(vec2 p){
 void cameraRay(vec2 uv, out vec3 ro, out vec3 rd){
   float yaw   = u_time * 0.045;
   float pitch = -0.35;
-  float dist  = 1.35;
+  float dist  = 1.25;
 
   ro = vec3(sin(yaw) * dist, 0.85, cos(yaw) * dist);
   vec3 target = vec3(0.0, 0.10, 0.0);
@@ -387,7 +387,7 @@ vec4 starsLayer(vec2 p, float cellSize, float density, float seed, float rMin, f
       // Gentle twinkle from highs only.
       if (u_highs > 0.02 && sz < 0.010){
         float ph = 4.5 * u_time + seed * 13.0 + rnd.y * 9.7;
-        float tw = 1.0 + 0.10 * u_highs * sin(ph);
+        float tw = 1.0 + 0.25 * u_highs * sin(ph);
         alpha *= clamp(tw, 0.90, 1.15);
       }
 
@@ -542,11 +542,11 @@ void main(){
   density *= breakup;
 
   // Optical depth -> transmittance
-  const float DUST_K = 4.3;             // absorption/scatter scale (match in composite)
+  const float DUST_K = 2.8;             // absorption/scatter scale (match in composite)
   float tau = density * DUST_K;
   float T = exp(-tau);
 
-  // Incident light from stars (blurred) so clouds "carry" star color.
+  // Incident light from stars (blurred) so clouds carry star color.
   float blurR = mix(0.0015, 0.012, density);
   vec3 illum = scatterBlur(v_uv, blurR);
 
@@ -554,7 +554,7 @@ void main(){
 
   // White clouds that absorb/take on star color:
   // start near white (luma), then tint toward star color.
-  const float TINT = 0.55;               // 0=white only, 1=fully colored by stars
+  const float TINT = 0.05;               // 0=white only, 1=fully colored by stars
   vec3 white = vec3(I);
   vec3 tinted = mix(white, illum, TINT);
 
@@ -726,7 +726,7 @@ export class GalaxyWebGL2MP {
       // floor/ref tracking (seconds; higher = slower)
       floorDown: 0.60,
       floorUp: 8.00,
-      refDecay: 1.80,
+      refDecay: 1.75,
 
       // AGC (slow normalization across tracks)
       loudAttack: 0.55,

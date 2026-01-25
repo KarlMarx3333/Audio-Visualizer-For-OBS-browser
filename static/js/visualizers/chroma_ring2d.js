@@ -227,9 +227,9 @@ export class ChromaRing2D {
   }
 
   _buildPalette() {
-    const A = [255, 0, 0]; // red (primary)
-    const B = [0, 255, 0]; // green (primary)
-    const C = [0, 0, 255]; // blue (primary)
+    const A = [80, 255, 0];  // laser green
+    const B = [0, 120, 255]; // neon blue
+    const C = [255, 0, 40];  // neon red
     const tmp = [0, 0, 0];
 
     for (let i = 0; i < 12; i++) {
