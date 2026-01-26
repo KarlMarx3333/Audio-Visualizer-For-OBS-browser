@@ -1,8 +1,8 @@
 # Architecture
 ObsVizHost is a Windows tray application that captures microphone input, analyzes it in real time, and serves a local FastAPI web UI plus a WebSocket audio stream for OBS visualizers (stable `/render` and per-visualizer `/v/<name>`). At runtime it wires together a tray UI (`pystray`), an audio capture loop (`sounddevice`), an analysis worker (`numpy` FFT), a state store, and a local HTTP/WebSocket server (`uvicorn` + `FastAPI`), while the browser UI and visualizers live in `static/`.
 
-## v2-clean direction (staged plan)
-- Stage 1: v2-only registry, Safe Mode Oscilloscope (Canvas2D) fallback, strict error surfacing + auto-fallback.
+## V2 direction (staged plan)
+- Stage 1: V2-only registry, Safe Mode Oscilloscope (Canvas2D) fallback, strict error surfacing + auto-fallback.
 - Stage 2: WebGL2-only fullscreen triangle multipass engine (GLSL300), BufferA/B/C + Image, optional feedback ping-pong, RGBA16F→RGBA8 fallback, built-in uniforms + audio textures.
 - Stage 3: port order: plasma → tunnel → feedback (done), next: fractal_torus.
 - Stage 4: audio contract cleanup (Python owns smoothing/AGC, add transient/onset scalar).
@@ -53,15 +53,24 @@ These constraints exist because OBS Browser Source (CEF) can run at variable FPS
 │       │   ├── oscilloscope2d.js
 │       │   ├── plasma_webgl2_mp.js
 │       │   ├── tunnel_webgl2_mp.js
-│       │   └── feedback_webgl2_mp.js
+│       │   ├── feedback_webgl2_mp.js
+│       │   ├── radial_spectrum_webgl2_mp.js
+│       │   ├── 3D_spectrum_webgl2_mp.js
+│       │   └── galaxy_webgl2_mp.js
 │       └── webgl/
 │           ├── util.js
 │           └── multipass_webgl2.js
-├── Demo/
-│   ├── feedback_demo.webp
-│   ├── oscilloscope_2D_demo.webp
-│   ├── plasma_demo.webp
-│   └── tunnel_warpspeed_demo.webp
+├── docs/
+│   └── demos/
+│       ├── 3d_spectrum_demo.webp
+│       ├── chroma_ring_demo.webp
+│       ├── feedback_demo.webp
+│       ├── galaxy_demo.webp
+│       ├── oscilloscope2d_demo.webp
+│       ├── plasma_demo.webp
+│       ├── radial_spectrum_demo.webp
+│       ├── tunnel_warp_demo.webp
+│       └── vector_scope_demo.webp
 ├── requirements.txt
 ├── README.md
 ├── Repo_zipper.ps1
@@ -86,7 +95,7 @@ These constraints exist because OBS Browser Source (CEF) can run at variable FPS
 - `static/js/visualizers/registry.js` registers visualizer classes. `createVisualizer()` falls back to `"safe_canvas2d"` if an ID is unknown.
 - `static/visualizer.html` owns the render loop and calls `viz.onFrame(frame)` each animation frame; visualizers should treat this as their update tick (no separate RAF loop needed).
 - Visualizers should animate using `frame.dt` (seconds) and `frame.t` (seconds); do not derive dt from `frame.ts`.
-- WebGL visualizers manage their own GL resources (programs, textures, FBOs). v2 ports should use the WebGL2 multipass engine where possible.
+- WebGL visualizers manage their own GL resources (programs, textures, FBOs). V2 ports should use the WebGL2 multipass engine where possible.
 - The `frame` payload passed to visualizers includes:
   - `frameId`, `ts` (raw source timestamp), `tsMs` (best-effort milliseconds)
   - `dt` (seconds), `t` (seconds), `time = { t, dt }`
@@ -98,7 +107,7 @@ These constraints exist because OBS Browser Source (CEF) can run at variable FPS
 - The smoothed arrays are reused; visualizers must treat `spectrum`, `wave`, and `waveLR` as read-only. Debug mode (`?debug=1`) detects mutations.
 - `viz.onFrame()` is wrapped in try/catch; errors show a persistent on-screen error panel/badge and auto-fallback to Safe Mode.
 
-## Multi-pass (v2 WebGL2) pipeline
+## Multi-pass (V2 WebGL2) pipeline
 Helper: `static/js/webgl/multipass_webgl2.js`.
 It builds a quad-only pipeline using a fullscreen triangle, with an `Image` pass plus optional `BufferA/BufferB/BufferC` passes and ping-pong feedback when a pass opts in.
 Key traits: WebGL2 + GLSL300, cached uniform locations, RGBA16F→RGBA8 fallback.
