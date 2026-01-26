@@ -117,6 +117,7 @@ vec3 nebulaColor(float r, float aMask, float n){
 void main(){
   vec2 uv = v_uv * 2.0 - 1.0;
   uv.x *= u_aspect;
+  float timeWrap = mod(u_time, 1000.0);
 
   vec3 ro, rd;
   cameraRay(uv, ro, rd);
@@ -164,7 +165,7 @@ void main(){
 
       // Cloud noise in disc volume (adds nebula structure).
       vec3 np = vec3(p * 0.95, pos.y * 3.0);
-      np += vec3(0.16 * u_time, -0.10 * u_time, 0.0);
+      np += vec3(0.16 * timeWrap, -0.10 * timeWrap, 0.0);
 
       float n = fbm3(np);
       float lanes = fbm3(np * 1.45 + vec3(11.0, 7.0, 3.0));
@@ -503,41 +504,41 @@ uniform sampler2D iChannel2; // noise (same "noise" you already use)
 float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 float sat(float x){ return clamp(x, 0.0, 1.0); }
 
-// Small "forward-ish" blur: stronger along screen radial direction (cheap forward scattering feel).
+// Small isotropic blur so scattering is local (not center-biased).
 vec3 scatterBlur(vec2 uv, float r){
-  vec2 c = vec2(0.5);
-  vec2 dir = uv - c;
-  float len = length(dir) + 1e-6;
-  dir /= len;
+  vec2 off = vec2(r, 0.0);
+  vec2 offD = vec2(r * 0.70710678, r * 0.70710678);
 
-  vec3 acc = texture(iChannel1, uv).rgb * 0.38;
-  float wsum = 0.38;
+  const float w0 = 0.28;
+  const float w1 = 0.12;
+  const float w2 = 0.06;
 
-  // 6 taps: pull a little more from "behind" (uv - dir*off) than in front.
-  for (int i = 1; i <= 6; i++){
-    float t = float(i) / 6.0;
-    float off = r * t;
+  vec3 acc = texture(iChannel1, uv).rgb * w0;
+  acc += texture(iChannel1, uv + vec2( off.x, 0.0)).rgb * w1;
+  acc += texture(iChannel1, uv + vec2(-off.x, 0.0)).rgb * w1;
+  acc += texture(iChannel1, uv + vec2(0.0,  off.x)).rgb * w1;
+  acc += texture(iChannel1, uv + vec2(0.0, -off.x)).rgb * w1;
 
-    float wBack = mix(0.20, 0.06, t);
-    float wFront = 0.35 * wBack;
+  acc += texture(iChannel1, uv + vec2( offD.x,  offD.y)).rgb * w2;
+  acc += texture(iChannel1, uv + vec2(-offD.x,  offD.y)).rgb * w2;
+  acc += texture(iChannel1, uv + vec2( offD.x, -offD.y)).rgb * w2;
+  acc += texture(iChannel1, uv + vec2(-offD.x, -offD.y)).rgb * w2;
 
-    acc += texture(iChannel1, uv - dir * off).rgb * wBack;
-    acc += texture(iChannel1, uv + dir * off).rgb * wFront;
-
-    wsum += (wBack + wFront);
-  }
-  return acc / wsum;
+  return acc;
 }
 
 void main(){
+  float timeWrap = mod(u_time, 1000.0);
   vec4 neb = texture(iChannel0, v_uv);
+  vec4 star = texture(iChannel1, v_uv);
 
-  // Treat BufferA alpha as dust density (participating media).
-  float density = pow(sat(neb.a), 0.55);
+  // Treat nebula + bright stars as dust density (participating media).
+  float density = max(neb.a, pow(star.a, 0.65) * 0.35);
+  density = pow(sat(density), 0.55);
 
 
   // Add soft cloud breakup so it reads as "thick white dust", not a flat mask.
-  float n = texture(iChannel2, v_uv * 1.35 + vec2(u_time * 0.01, -u_time * 0.008)).r;
+  float n = texture(iChannel2, v_uv * 1.35 + vec2(timeWrap * 0.01, -timeWrap * 0.008)).r;
   float breakup = smoothstep(0.18, 0.92, n);
   density *= breakup;
 
