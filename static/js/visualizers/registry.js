@@ -1,48 +1,98 @@
-import { Spectrum2D } from "/static/js/visualizers/spectrum2d.js";
 import { Oscilloscope2D } from "/static/js/visualizers/oscilloscope2d.js";
-import { Spectrogram2D } from "/static/js/visualizers/spectrogram2d.js";
-import { Vectorscope2D } from "/static/js/visualizers/vectorscope2d.js";
-import { ChromaRing2D } from "/static/js/visualizers/chroma_ring2d.js";
-import { PlasmaWebGL } from "/static/js/visualizers/plasma_webgl.js";
-import { FeedbackMirrorWebGL } from "/static/js/visualizers/feedback_webgl.js";
-import { TunnelWarpWebGL } from "/static/js/visualizers/tunnel_webgl.js";
-import { ParticleSwarmWebGL2 } from "/static/js/visualizers/particle_swarm_webgl2.js";
-import { FractalTorusWebGL } from "/static/js/visualizers/fractal_torus_webgl.js";
-import { MembraneVortexWebGL2 } from "/static/js/visualizers/membrane_vortex_webgl2.js";
-import { MilkdropWarpReactorWebGL2 } from "/static/js/visualizers/milkdrop_webgl2.js";
+// Remember to add visualizer to server.py as well
+const VISUALIZER_LOADERS = [
+  {
+    id: "vectorscope",
+    path: "/static/js/visualizers/vectorscope2d.js",
+    exportName: "Vectorscope2D",
+  },
+  {
+    id: "chroma_ring",
+    path: "/static/js/visualizers/chroma_ring2d.js",
+    exportName: "ChromaRing2D",
+  },
+  {
+    id: "plasma",
+    path: "/static/js/visualizers/plasma_webgl2_mp.js",
+    exportName: "PlasmaWebGL2MP",
+  },
+  {
+    id: "tunnel",
+    path: "/static/js/visualizers/tunnel_webgl2_mp.js",
+    exportName: "TunnelWebGL2MP",
+  },
+  {
+    id: "radial_spectrum",
+    path: "/static/js/visualizers/radial_spectrum_webgl2_mp.js",
+    exportName: "RadialSpectrumWebGL2MP",
+  },
+  {
+    id: "galaxy",
+    path: "/static/js/visualizers/galaxy_webgl2_mp.js",
+    exportName: "GalaxyWebGL2MP",
+  },
+  {
+    id: "spectrum3d",
+    path: "/static/js/visualizers/3D_spectrum_webgl2_mp.js",
+    exportName: "Spectrum3DWebGL2MP",
+  },
+  {
+    id: "feedback",
+    path: "/static/js/visualizers/feedback_webgl2_mp.js",
+    exportName: "FeedbackWebGL2MP",
+  },
+];
 
+function logLoadError(id, err) {
+  console.error(`Visualizer module failed to load: ${id}`, err);
+  if (globalThis.__vizDebugLog) {
+    globalThis.__vizDebugLog("[viz load error]", `${id}: ${err?.message || err}`);
+  }
+}
 
 class Registry {
-  constructor(){
+  constructor() {
     this._map = new Map();
     this._loaded = false;
+    this._loadPromise = null;
   }
-  ensureLoaded(){
-    if(this._loaded) return;
+  async ensureLoaded() {
+    if (this._loadPromise) return this._loadPromise;
+    if (this._loaded) return Promise.resolve();
     this._loaded = true;
-    this.register(Spectrum2D);
     this.register(Oscilloscope2D);
-    this.register(Spectrogram2D);
-    this.register(Vectorscope2D);
-    this.register(ChromaRing2D);
-    this.register(PlasmaWebGL);
-    this.register(FeedbackMirrorWebGL);
-    this.register(TunnelWarpWebGL);
-    this.register(ParticleSwarmWebGL2);
-    this.register(FractalTorusWebGL);
-    this.register(MembraneVortexWebGL2);
-    this.register(MilkdropWarpReactorWebGL2);
-
+    this._loadPromise = Promise.allSettled(
+      VISUALIZER_LOADERS.map(async (spec) => {
+        try {
+          const mod = await import(spec.path);
+          const V = mod && mod[spec.exportName];
+          if (!V) {
+            throw new Error(`Missing export ${spec.exportName}`);
+          }
+          this.register(V);
+        } catch (err) {
+          logLoadError(spec.id, err);
+        }
+      })
+    ).then(() => {});
+    return this._loadPromise;
   }
-  register(V){ this._map.set(V.id, V); }
-  get(id){ return this._map.get(id); }
-  list(){ return Array.from(this._map.values()).map(v=>({id:v.id, name:v.name, renderer:v.renderer})); }
+  register(V) { this._map.set(V.id, V); }
+  get(id) { return this._map.get(id); }
+  list() {
+    return Array.from(this._map.values()).map((v) => ({
+      id: v.id,
+      name: v.name,
+      renderer: v.renderer,
+    }));
+  }
 }
 
 export const registry = new Registry();
 
-export function createVisualizer(id, canvas){
-  registry.ensureLoaded();
-  const V = registry.get(id) || registry.get("spectrum");
+export async function createVisualizer(id, canvas) {
+  await registry.ensureLoaded();
+  const V = registry.get(id) || registry.get(Oscilloscope2D.id);
+  if (!V) throw new Error("No visualizers registered");
   return new V(canvas);
 }

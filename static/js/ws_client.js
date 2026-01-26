@@ -1,4 +1,4 @@
-export function connectAudioWS({url, onFrame, onStatus}){
+export function connectAudioWS({url, onFrame, onStatus, onError}){
   let ws = null;
   let alive = true;
   let retryMs = 500;
@@ -19,12 +19,19 @@ export function connectAudioWS({url, onFrame, onStatus}){
       retryMs = Math.min(5000, Math.floor(retryMs*1.5));
     };
     ws.onmessage = (ev)=>{
+      const buf = ev.data;
+      if(!(buf instanceof ArrayBuffer)) return;
       try{
-        const buf = ev.data;
-        if(!(buf instanceof ArrayBuffer)) return;
         const frame = parseAVF1(buf);
         if(onFrame) onFrame(frame);
-      }catch(e){}
+      }catch(e){
+        console.error("Audio WS parse failed", e);
+        if(onError) onError(e);
+      }
+    };
+    ws.onerror = (ev)=>{
+      console.error("Audio WS error", ev);
+      if(onError) onError(new Error("Audio WS error"));
     };
   }
 

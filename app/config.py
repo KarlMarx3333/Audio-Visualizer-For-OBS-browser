@@ -24,7 +24,7 @@ class AppConfig:
     selected_device_name: Optional[str] = None
     samplerate: int = 48000
     channels: int = 1
-    visualizer_name: str = "spectrum"
+    visualizer_name: str = "safe_canvas2d"
     smoothing: float = 0.65
     gain: float = 1.0
     visual_smoothing: float = 0.55
@@ -39,6 +39,9 @@ class AppConfig:
         self.smoothing = float(max(0.0, min(0.99, self.smoothing)))
         self.gain = float(max(0.2, min(4.0, self.gain)))
         self.visual_smoothing = float(max(0.0, min(0.95, self.visual_smoothing)))
+
+        if self.visualizer_name == "spectrogram3d":
+            self.visualizer_name = "spectrum3d"
 
         fft = int(self.fft_size)
         if fft < 256:
