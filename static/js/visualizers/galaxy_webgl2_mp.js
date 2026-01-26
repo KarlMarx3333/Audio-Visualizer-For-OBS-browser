@@ -60,7 +60,10 @@ void cameraRay(vec2 uv, out vec3 ro, out vec3 rd){
 
 // --- noise (procedural clouds / dust lanes) ---
 float n2(vec2 p){
-  return texture(iChannel0, fract(p)).r;
+  vec2 uv = fract(p);
+  vec2 w = texture(iChannel0, uv * 0.85 + 0.17).rg - 0.5;
+  vec2 warp = w * 0.55;
+  return texture(iChannel0, fract(uv + warp)).r;
 }
 float noise3(vec3 p){
   float a = n2(p.xy);
@@ -71,7 +74,7 @@ float noise3(vec3 p){
 float fbm3(vec3 p){
   float f = 0.0;
   float a = 0.55;
-  for(int i=0;i<3;i++){
+  for(int i=0;i<2;i++){
     f += a * noise3(p);
     p = p * 2.02 + vec3(17.0, 9.0, 13.0);
     a *= 0.50;
@@ -99,6 +102,8 @@ float arms(vec2 p){
 float discFalloff(float r){
   float d = exp(-r*r*1.10);
   float c = exp(-r*r*16.0) * u_core;
+  float coreCap = smoothstep(0.02, 0.25, r);
+  c *= mix(0.35, 1.0, coreCap);
   return d + c;
 }
 
@@ -123,7 +128,7 @@ void main(){
   cameraRay(uv, ro, rd);
 
   // Thin volumetric slab around y=0 (increase H for thicker nebula).
-  float H = 0.34;           // half-thickness (world) norm: 0.24
+  float H = 0.75;          // half-thickness (world)
   float denom = rd.y;
   if (abs(denom) < 1e-4){
     fragColor = vec4(0.0);
@@ -140,7 +145,7 @@ void main(){
   tEnter = max(tEnter, 0.0);
 
   // Raymarch inside slab; STEPS trades quality vs cost.
-  const int STEPS = 18;
+  const int STEPS = 12;
   float t = tEnter;
   float dt = (tExit - tEnter) / float(STEPS);
 
@@ -168,28 +173,36 @@ void main(){
       np += vec3(0.16 * timeWrap, -0.10 * timeWrap, 0.0);
 
       float n = fbm3(np);
-      float lanes = fbm3(np * 1.45 + vec3(11.0, 7.0, 3.0));
+      float lanes = n;
 
       // Dust lanes carve out darker streaks along arms.
-      float laneCut = 1.0 - 0.35 * pow(sat(lanes), 8.8);
+      float laneCut = 1.0 - 0.25 * pow(sat(lanes), 6.5);
 
-      float density = disc * mix(0.55, 1.35, armM) * vy;
-      density *= (0.25 + 1.35 * pow(sat(n), 1.9));
+      float density = disc * mix(0.9, 3.0, armM) * vy;
+      float nLump = smoothstep(0.12, 0.75, n);
+      density *= (0.45 + 2.4 * nLump);
       density *= laneCut;
 
       // Subtle mids bias (nebula still visible with zero audio).
       density *= (0.90 + 0.50 * u_mids);
 
       // Core glow volume (non-audio).
-      density += 0.32 * u_core * exp(-r*r*18.0) * vy;
+      float coreGlow = u_core * exp(-r*r*18.0) * vy;
+      coreGlow *= smoothstep(0.05, 0.22, r);
+      density += 0.18 * coreGlow;
+
+      // Anti-core: thicken dust near the center to avoid a white hotspot.
+      float coreDark = 1.0 + (1.0 - smoothstep(0.0, 0.25, r)) * 0.9;
+      density *= coreDark;
 
       density = max(density, 0.0);
 
       // Front-to-back compositing.
-      float alpha = density * 0.902 * dt;   // overall opacity (tweak for brightness)
-      alpha = clamp(alpha, 0.0, 0.32);
+      float alpha = density * 1.15 * dt;   // overall opacity (tweak for brightness)
+      alpha = clamp(alpha, 0.0, 0.38);
 
       vec3 c = nebulaColor(sat(r / 1.15), armM, n);
+      c *= exp(-density * 1.5);
 
       col += (1.0 - a) * c * alpha;
       a   += (1.0 - a) * alpha;
@@ -199,11 +212,6 @@ void main(){
 
     t += dt;
   }
-
-  // Faint outer vignette for overlay readability.
-  float v = 1.0 - 0.22 * pow(length(uv), 1.6);
-  col *= v;
-  a *= v;
 
   fragColor = vec4(col, sat(a));
 }
@@ -589,29 +597,18 @@ uniform sampler2D iChannel2; // BufferC dust scattering
 float sat(float x){ return clamp(x, 0.0, 1.0); }
 
 void main(){
-  vec4 n = texture(iChannel0, v_uv);
-  vec4 s = texture(iChannel1, v_uv);
-  vec4 d = texture(iChannel2, v_uv);
+  vec4 neb = texture(iChannel0, v_uv);
+  vec4 stars = texture(iChannel1, v_uv);
+  vec4 dust = texture(iChannel2, v_uv);
 
-  // Match DUST_K from BufferC:
-  const float DUST_K = 2.8;
-  float tau = sat(n.a) * DUST_K;
-  float T = exp(-tau);
+  vec3 nebCol = neb.rgb + dust.rgb;
+  float nebA = sat(max(neb.a, dust.a));
 
-  // Stars are *absorbed* by dust:
-  vec3 stars = s.rgb * T;
+  vec3 finalRGB = mix(stars.rgb, nebCol, nebA);
+  finalRGB += stars.rgb * nebA * 0.5;
 
-  // Nebula emissive stays (it’s its own light)
-  vec3 col = n.rgb + d.rgb + stars;
-
-  // Gentle contrast curve (overlay-safe)
-  col = col * 0.88 + 0.16 * col * col * (3.0 - 2.0 * col);
-
-  // Alpha union (don’t go fully opaque)
-  float aStars = s.a * (0.5 + 0.5 * T);
-  float a = 1.0 - (1.0 - sat(n.a)) * (1.0 - sat(d.a)) * (1.0 - sat(aStars));
-
-  fragColor = vec4(col, sat(a));
+  float outA = max(nebA * 1.5, stars.a);
+  fragColor = vec4(pow(finalRGB, vec3(0.85)), sat(outA));
 }
 `;
 
