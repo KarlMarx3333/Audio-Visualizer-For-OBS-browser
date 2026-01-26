@@ -3,7 +3,6 @@ import { MultiPassWebGL2 } from "/static/js/webgl/multipass_webgl2.js";
 3D Spectrum Dots (WebGL2 Multipass)
 
 Inspired by Shadertoy: "Video Heightfield" (audio heightfield variant) by huttarl (2013-03-20)
-https://www.shadertoy.com/view/XXXXXXXX   // TODO: replace with the exact Shadertoy URL
 
 Notes: Original shader references "video heightfield" by @simesgreen:
 https://www.shadertoy.com/view/Xss3zr
@@ -50,7 +49,7 @@ uniform float u_aspect;
 uniform sampler2D u_specTex;
 uniform int u_specLen;
 
-const int   STEPS = 64;
+const int   STEPS = 40;
 const float BANDS = 30.0;
 const float DOTS_Z = 90.0;  // dot columns along depth
 const float DOT_BRIGHTNESS = 4.0;
@@ -96,29 +95,8 @@ float specSample01(float x01){
 
   float fx = clamp(x01, 0.0, 1.0) * float(n - 1);
   int i0 = int(floor(fx));
-
-  // 5-tap smoothing kernel around nearest bin (rebins + smooths enough to avoid raw-bin jitter)
-  int i_2 = clamp(i0 - 2, 0, n - 1);
-  int i_1 = clamp(i0 - 1, 0, n - 1);
-  int i00 = clamp(i0 + 0, 0, n - 1);
-  int i1  = clamp(i0 + 1, 0, n - 1);
-  int i2  = clamp(i0 + 2, 0, n - 1);
-
-  float u_2 = (float(i_2) + 0.5) / float(n);
-  float u_1 = (float(i_1) + 0.5) / float(n);
-  float u00 = (float(i00) + 0.5) / float(n);
-  float u1  = (float(i1)  + 0.5) / float(n);
-  float u2  = (float(i2)  + 0.5) / float(n);
-
-  float v_2 = max(0.0, texture(u_specTex, vec2(u_2, 0.5)).r);
-  float v_1 = max(0.0, texture(u_specTex, vec2(u_1, 0.5)).r);
-  float v00 = max(0.0, texture(u_specTex, vec2(u00, 0.5)).r);
-  float v1  = max(0.0, texture(u_specTex, vec2(u1,  0.5)).r);
-  float v2  = max(0.0, texture(u_specTex, vec2(u2,  0.5)).r);
-
-  // weights: [0.25, 0.6, 1.0, 0.6, 0.25]
-  float s = v_2*0.25 + v_1*0.60 + v00 + v1*0.60 + v2*0.25;
-  return s / (0.25 + 0.60 + 1.00 + 0.60 + 0.25);
+  float u0 = (float(i0) + 0.5) / float(n);
+  return max(0.0, texture(u_specTex, vec2(u0, 0.5)).r);
 }
 
 float bandAmp(float band01){

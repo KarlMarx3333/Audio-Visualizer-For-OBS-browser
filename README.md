@@ -1,39 +1,35 @@
 # ObsVizHost (Tray + Localhost Visualizers for OBS)
 
-OBS-focused audio visualizer host (V2 clean rewrite): V2-only registry, Safe Mode Oscilloscope fallback, and a WebGL2 multipass engine.
+Tray app that captures mic input, computes analysis, and serves a localhost visualizer page for OBS Browser Source.
 
-## Current V2 status
-- V2 visualizer list: Safe Mode Oscilloscope (Canvas2D), Vectorscope, Chroma Ring, Plasma, Tunnel / Warp Speed, Feedback Mirror, Radial Spectrum, 3D Spectrum Dots, Galaxy.
-- Safe Mode Oscilloscope fallback with visible errors and auto-fallback.
-- WebGL2 multipass engine (GLSL300, fullscreen triangle, RGBA16F->RGBA8 fallback, feedback ping-pong).
-- Current multipass ports include Plasma, Tunnel, Feedback, Radial Spectrum, 3D Spectrum Dots, and Galaxy.
+## What it is
+- V2-only visualizer host with a tray UI, local control page, and stable /render URL.
+- Safe Mode Oscilloscope fallback with on-screen error reporting if a visualizer fails.
+- WebGL2 multipass engine for GLSL 300 ES visualizers (fullscreen triangle + audio textures).
+- Current visualizers: Safe Mode Oscilloscope, Vectorscope, Chroma Ring, Plasma, Tunnel / Warp Speed, Feedback Mirror, Radial Spectrum, 3D Spectrum Dots, Galaxy.
 
-## Credits / Shader Inspirations
-- Original/adapted from: ‘Fractal Toras Tunnel’ by netgrind (2017-05-16) (Shadertoy: https://www.shadertoy.com/view/ld2yDD)
-- Inspired by: ‘Disco tunnel’ by WAHa_06x36 (2018-05-08) (Shadertoy: https://www.shadertoy.com/view/XstfzB)
-
-## Getting Started
-Install dependencies (Windows PowerShell):
+## Install (Windows PowerShell)
 ```powershell
 python -m venv .venv
 .\.venv\Scripts\activate
 pip install -r requirements.txt
 ```
 
-Run the server:
+## Run
 ```powershell
 python -m app.main
 ```
 
-Open in a browser:
-- http://127.0.0.1:8787/ (control page)
-- http://127.0.0.1:8787/render (interactive preview)
+A tray icon appears. Use Open UI to open the control page, or select visualizers/devices from the tray to change the active visualizer for /render clients.
 
-OBS Browser Source:
-- Overlay: http://127.0.0.1:8787/render?embed=1
-- Background: http://127.0.0.1:8787/render
+## OBS Browser Source (stable URL)
+Use the stable endpoint so OBS never needs a new URL:
+- http://127.0.0.1:8787/render?embed=1
 
-Direct visualizer links:
+Interactive preview:
+- http://127.0.0.1:8787/render
+
+Direct, fixed visualizer links (no auto-switch):
 - http://127.0.0.1:8787/v/safe_canvas2d?embed=1
 - http://127.0.0.1:8787/v/vectorscope?embed=1
 - http://127.0.0.1:8787/v/chroma_ring?embed=1
@@ -44,84 +40,171 @@ Direct visualizer links:
 - http://127.0.0.1:8787/v/tunnel?embed=1
 - http://127.0.0.1:8787/v/feedback?embed=1
 
-## Demos (V2)
-**Safe Mode Oscilloscope (Canvas2D)** — fallback waveform preview with overlay-safe output.
-![Safe Mode Oscilloscope demo](Demo/oscilloscope2d_demo.webp)
-
-**Vectorscope / Goniometer (Canvas2D)** — stereo phase and correlation display.
-![Vectorscope demo](Demo/vector_scope_demo.webp)
-
-**Chroma Ring / Pitch Classes (Canvas2D)** — pitch-class energy ring from the spectrum.
-![Chroma Ring demo](Demo/chroma_ring_demo.webp)
-
-**Plasma (WebGL2 Multipass)** — layered plasma with audio-reactive glow.
-![Plasma demo](Demo/plasma_demo.webp)
-
-**Tunnel / Warp Speed (WebGL2 Multipass)** — forward tunnel with audio-driven speed.
-![Tunnel demo](Demo/tunnel_warp_demo.webp)
-
-**Radial Spectrum (WebGL2 Multipass)** — circular spectrum bars with peak hats.
-![Radial Spectrum demo](Demo/radial_spectrum_demo.webp)
-
-**3D Spectrum Dots (WebGL2 Multipass)** — 3D band field rendered as dots.
-![3D Spectrum Dots demo](Demo/3d_spectrum_demo.webp)
-
-**Galaxy (WebGL2 Multipass)** — nebula + starfield driven by band energy.
-![Galaxy demo](Demo/galaxy_demo.webp)
-
-**Feedback Mirror (WebGL2 Multipass)** — recursive feedback with mirrored motion.
-![Feedback demo](Demo/feedback_demo.webp)
-
 ## Audio tuning (tray)
 Use the tray menu Audio Tuning... to adjust Gain (0.2..4.0) and Visual Smoothing (0.0..0.95).
-Values persist in config.json and apply live. The Gain/Smoothing sliders in the visualizer UI are read-only and mirror the tray values.
+Values persist in config.json and apply live, including OBS embed mode.
+The Gain/Smoothing sliders in the visualizer UI are read-only and mirror the tray values.
 
-## Guardrails (non-negotiables)
-- dt-invariant behavior (decays/advects scale with dt).
-- no per-frame allocations in hot paths.
-- no per-frame shader compile/link/getUniformLocation.
-- no silent error swallowing; failures visible on-screen + console, auto-fallback to Safe Mode.
-- overlay-safe alpha by default (no accidental opaque clears).
+## Demos (V2)
+**Safe Mode Oscilloscope (Canvas2D)** - fallback waveform preview with overlay-safe output.
+![Safe Mode Oscilloscope demo](Demo/oscilloscope2d_demo.webp)
 
-## Visualizer engine contract
-Visualizers are ES modules registered in static/js/visualizers/registry.js with a class implementing:
-- constructor(canvas)
-- onResize(width, height, dpr) (optional)
-- onFrame(frame)
-- destroy() (optional)
+**Vectorscope / Goniometer (Canvas2D)** - stereo phase and correlation display.
+![Vectorscope demo](Demo/vector_scope_demo.webp)
 
-The host (static/visualizer.html) owns timing and passes a stable frame object each tick. Key fields and units:
-- dt (seconds), t (seconds), and time = { t, dt }
-- viewport = { w, h, dpr } plus width, height, dpr (backbuffer pixels)
-- overlay (true when ?embed=1)
-- spectrum, wave, waveLR (smoothed audio arrays, read-only)
-- bass, mid, high, energy (0..1 scalars)
-- gain, samplerate, fftSize, rms, peak, corr
+**Chroma Ring / Pitch Classes (Canvas2D)** - pitch-class energy ring from the spectrum.
+![Chroma Ring demo](Demo/chroma_ring_demo.webp)
 
-Do not compute dt from ts; always use frame.dt.
+**Plasma (WebGL2 Multipass)** - layered plasma with audio-reactive glow.
+![Plasma demo](Demo/plasma_demo.webp)
 
-## WebGL2 multipass engine
-The multipass engine lives at static/js/webgl/multipass_webgl2.js and supports BufferA/B/C + Image passes.
-It is WebGL2-only (GLSL300), uses a fullscreen triangle, caches uniform locations, and falls back from RGBA16F to RGBA8 when needed.
-Built-in uniforms include u_time, u_dt, u_frame, u_resolution, u_aspect, audio scalars (u_energy, etc.), and audio textures (u_specTex, u_waveTex).
+**Tunnel / Warp Speed (WebGL2 Multipass)** - forward tunnel with audio-driven speed.
+![Tunnel demo](Demo/tunnel_warp_demo.webp)
 
-## Staged plan (V2)
-- Stage 1: V2-only registry, Safe Mode Oscilloscope (Canvas2D) fallback, strict error surfacing + auto-fallback.
-- Stage 2: WebGL2-only fullscreen triangle multipass engine (GLSL300), BufferA/B/C + Image, optional feedback ping-pong, RGBA16F->RGBA8 fallback, built-in uniforms + audio textures.
-- Stage 3: port order: plasma -> tunnel -> feedback (done), next: fractal_torus.
-- Stage 4: audio contract cleanup (Python owns smoothing/AGC, add transient/onset scalar).
-- Stage 5: categories + compositing policy (overlay vs background, alpha rules).
-- Stage 6: hard ones later (Swarm stays custom until rewritten).
+**Radial Spectrum (WebGL2 Multipass)** - circular spectrum bars with peak hats.
+![Radial Spectrum demo](Demo/radial_spectrum_demo.webp)
 
-## Troubleshooting
-- Errors show in the on-screen error panel and in the browser console.
-- Safe Mode activates on any visualizer failure; if you see Safe Mode, check the error panel/console.
-- If WebSocket parsing fails, you will see a console error and the error panel will show the cause.
+**3D Spectrum Dots (WebGL2 Multipass)** - 3D band field rendered as dots.
+![3D Spectrum Dots demo](Demo/3d_spectrum_demo.webp)
 
-## Demo assets
-Demo/ contains the current preview captures used in the README section above.
+**Galaxy (WebGL2 Multipass)** - nebula and starfield driven by band energy.
+![Galaxy demo](Demo/galaxy_demo.webp)
 
-## Add a new visualizer
-- Create a JS module in static/js/visualizers/ exporting a class with static id/name/renderer and the lifecycle methods.
-- Register it in static/js/visualizers/registry.js.
-- Update VISUALIZERS in app/server.py to keep the server list in sync.
+**Feedback Mirror (WebGL2 Multipass)** - recursive feedback with mirrored motion.
+![Feedback demo](Demo/feedback_demo.webp)
+
+## Credits / attributions
+- Fractal Torus Tunnel (WebGL): adapted from Shadertoy shader "Fractal Toras Tunnel"
+  Created by netgrind (2017-05-16) https://www.shadertoy.com/view/ld2yDD
+- Tunnel / Warp Speed (WebGL): inspired by Shadertoy shader "Disco tunnel"
+  Created by WAHa_06x36 (2018-05-08) https://www.shadertoy.com/view/XstfzB
+- Radial Spectrum (WebGL2 Multipass): inspired by Shadertoy shader "Radial Audio Visualizer"
+  Created by Rafbeam (2018-04-21) https://www.shadertoy.com/view/ldtBRN
+- 3D Spectrum Dots (WebGL2 Multipass): inspired by Shadertoy shader "Video Heightfield" (audio heightfield variant)
+  Created by huttarl (2013-03-20) (URL not specified in source header)
+- Video Heightfield (reference): original shader cited by 3D Spectrum Dots
+  Created by @simesgreen https://www.shadertoy.com/view/Xss3zr
+
+## Creating Visualizers
+
+### File locations
+- Create your visualizer module in: static/js/visualizers/
+- Register it in: static/js/visualizers/registry.js
+- Optional (recommended): add it to the tray list in app/server.py (VISUALIZERS)
+
+### Visualizer contract
+- Required: static id, static name, static renderer ("2d" or "webgl")
+- Lifecycle: constructor(canvas), onFrame(frame), optional onResize(w,h,dpr), optional destroy()
+- static/visualizer.html owns the render loop and calls onFrame(frame)
+
+### Key frame fields
+- dt, t
+- spectrum, wave, waveLR
+- energy, bass, mid, high
+- width, height, dpr, overlay
+
+### Canvas2D template
+```js
+export class MyCanvasViz {
+  static id = "my_canvas";
+  static name = "My Canvas Viz";
+  static renderer = "2d";
+
+  constructor(canvas) {
+    this.canvas = canvas;
+    this.ctx = canvas.getContext("2d");
+    this.phase = 0;
+  }
+
+  onResize(w, h, dpr) {
+    const cw = Math.max(1, Math.floor(w * dpr));
+    const ch = Math.max(1, Math.floor(h * dpr));
+    this.canvas.width = cw;
+    this.canvas.height = ch;
+    this.ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  onFrame(frame) {
+    this.phase += frame.dt;
+    const ctx = this.ctx;
+    ctx.clearRect(0, 0, frame.width, frame.height);
+
+    const wave = frame.wave;
+    if (!wave || wave.length < 2) return;
+
+    ctx.beginPath();
+    for (let i = 0; i < wave.length; i++) {
+      const x = (i / (wave.length - 1)) * frame.width;
+      const y = (0.5 - 0.4 * wave[i]) * frame.height;
+      if (i === 0) ctx.moveTo(x, y);
+      else ctx.lineTo(x, y);
+    }
+    const a = 0.6 + 0.2 * Math.sin(this.phase * 2.0);
+    ctx.strokeStyle = `rgba(0, 255, 255, ${a})`;
+    ctx.stroke();
+  }
+}
+```
+
+### WebGL2 multipass template
+```js
+import { MultiPassWebGL2 } from "/static/js/webgl/multipass_webgl2.js";
+
+const FS = `#version 300 es
+precision highp float;
+
+in vec2 v_uv;
+out vec4 fragColor;
+
+uniform float u_time;
+uniform float u_dt;
+
+void main(){
+  float pulse = 0.5 + 0.5 * sin(u_time * 2.0);
+  fragColor = vec4(vec3(pulse), 0.6);
+}
+`;
+
+const PASS_SPECS = [
+  { name: "Image", fs: FS },
+];
+
+export class MyWebGLViz {
+  static id = "my_webgl";
+  static name = "My WebGL Viz";
+  static renderer = "webgl";
+
+  constructor(canvas) {
+    this.canvas = canvas;
+    const gl = canvas.getContext("webgl2", {
+      alpha: true,
+      antialias: false,
+      premultipliedAlpha: false,
+      preserveDrawingBuffer: false,
+    });
+    if (!gl) throw new Error("WebGL2 not available");
+    this.mp = new MultiPassWebGL2(gl);
+    this.mp.setPasses(PASS_SPECS);
+    this._frame = 0;
+  }
+
+  onResize(w, h, dpr) {
+    this.mp.setSize(w, h, dpr);
+  }
+
+  onFrame(frame) {
+    const t = (frame && frame.t) || (frame && frame.time && frame.time.t) || 0;
+    const dt = (frame && frame.dt) || (frame && frame.time && frame.time.dt) || 0;
+    const frameIndex = frame && frame.frameId ? frame.frameId : (this._frame = (this._frame + 1) | 0);
+    this.mp.render(frame, t, dt, frameIndex);
+  }
+
+  destroy() {
+    this.mp.destroy();
+  }
+}
+```
+
+### WebGL2 multipass shader notes
+- Use GLSL 300 es: `#version 300 es`, `in vec2 v_uv;`, `out vec4 fragColor;`
+- Built-in uniforms you can rely on include `u_time` and `u_dt`
