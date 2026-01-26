@@ -78,6 +78,12 @@ The Gain/Smoothing sliders in the visualizer UI are read-only and mirror the tra
   Created by netgrind (2017-05-16) https://www.shadertoy.com/view/ld2yDD
 - Tunnel / Warp Speed (WebGL): inspired by Shadertoy shader "Disco tunnel"
   Created by WAHa_06x36 (2018-05-08) https://www.shadertoy.com/view/XstfzB
+- Radial Spectrum (WebGL2 Multipass): inspired by Shadertoy shader "Radial Audio Visualizer"
+  Created by Rafbeam (2018-04-21) https://www.shadertoy.com/view/ldtBRN
+- 3D Spectrum Dots (WebGL2 Multipass): inspired by Shadertoy shader "Video Heightfield" (audio heightfield variant)
+  Created by huttarl (2013-03-20) (URL not specified in source header)
+- Video Heightfield (reference): original shader cited by 3D Spectrum Dots
+  Created by @simesgreen https://www.shadertoy.com/view/Xss3zr
 
 ## Creating Visualizers
 
