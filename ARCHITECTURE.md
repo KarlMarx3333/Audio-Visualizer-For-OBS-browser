@@ -60,17 +60,16 @@ These constraints exist because OBS Browser Source (CEF) can run at variable FPS
 │       └── webgl/
 │           ├── util.js
 │           └── multipass_webgl2.js
-├── docs/
-│   └── demos/
-│       ├── 3d_spectrum_demo.webp
-│       ├── chroma_ring_demo.webp
-│       ├── feedback_demo.webp
-│       ├── galaxy_demo.webp
-│       ├── oscilloscope2d_demo.webp
-│       ├── plasma_demo.webp
-│       ├── radial_spectrum_demo.webp
-│       ├── tunnel_warp_demo.webp
-│       └── vector_scope_demo.webp
+├── Demo/
+│   ├── 3d_spectrum_demo.webp
+│   ├── chroma_ring_demo.webp
+│   ├── feedback_demo.webp
+│   ├── galaxy_demo.webp
+│   ├── oscilloscope2d_demo.webp
+│   ├── plasma_demo.webp
+│   ├── radial_spectrum_demo.webp
+│   ├── tunnel_warp_demo.webp
+│   └── vector_scope_demo.webp
 ├── requirements.txt
 ├── README.md
 ├── Repo_zipper.ps1

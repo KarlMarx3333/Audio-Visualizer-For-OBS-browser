@@ -46,31 +46,31 @@ Direct visualizer links:
 
 ## Demos (V2)
 **Safe Mode Oscilloscope (Canvas2D)** — fallback waveform preview with overlay-safe output.
-![Safe Mode Oscilloscope demo](docs/demos/oscilloscope2d_demo.webp)
+![Safe Mode Oscilloscope demo](Demo/oscilloscope2d_demo.webp)
 
 **Vectorscope / Goniometer (Canvas2D)** — stereo phase and correlation display.
-![Vectorscope demo](docs/demos/vector_scope_demo.webp)
+![Vectorscope demo](Demo/vector_scope_demo.webp)
 
 **Chroma Ring / Pitch Classes (Canvas2D)** — pitch-class energy ring from the spectrum.
-![Chroma Ring demo](docs/demos/chroma_ring_demo.webp)
+![Chroma Ring demo](Demo/chroma_ring_demo.webp)
 
 **Plasma (WebGL2 Multipass)** — layered plasma with audio-reactive glow.
-![Plasma demo](docs/demos/plasma_demo.webp)
+![Plasma demo](Demo/plasma_demo.webp)
 
 **Tunnel / Warp Speed (WebGL2 Multipass)** — forward tunnel with audio-driven speed.
-![Tunnel demo](docs/demos/tunnel_warp_demo.webp)
+![Tunnel demo](Demo/tunnel_warp_demo.webp)
 
 **Radial Spectrum (WebGL2 Multipass)** — circular spectrum bars with peak hats.
-![Radial Spectrum demo](docs/demos/radial_spectrum_demo.webp)
+![Radial Spectrum demo](Demo/radial_spectrum_demo.webp)
 
 **3D Spectrum Dots (WebGL2 Multipass)** — 3D band field rendered as dots.
-![3D Spectrum Dots demo](docs/demos/3d_spectrum_demo.webp)
+![3D Spectrum Dots demo](Demo/3d_spectrum_demo.webp)
 
 **Galaxy (WebGL2 Multipass)** — nebula + starfield driven by band energy.
-![Galaxy demo](docs/demos/galaxy_demo.webp)
+![Galaxy demo](Demo/galaxy_demo.webp)
 
 **Feedback Mirror (WebGL2 Multipass)** — recursive feedback with mirrored motion.
-![Feedback demo](docs/demos/feedback_demo.webp)
+![Feedback demo](Demo/feedback_demo.webp)
 
 ## Audio tuning (tray)
 Use the tray menu Audio Tuning... to adjust Gain (0.2..4.0) and Visual Smoothing (0.0..0.95).
@@ -119,7 +119,7 @@ Built-in uniforms include u_time, u_dt, u_frame, u_resolution, u_aspect, audio s
 - If WebSocket parsing fails, you will see a console error and the error panel will show the cause.
 
 ## Demo assets
-docs/demos/ contains the current preview captures used in the README section above.
+Demo/ contains the current preview captures used in the README section above.
 
 ## Add a new visualizer
 - Create a JS module in static/js/visualizers/ exporting a class with static id/name/renderer and the lifecycle methods.
