@@ -111,6 +111,7 @@ Helper: `static/js/webgl/multipass_webgl2.js`.
 It builds a quad-only pipeline using a fullscreen triangle, with an `Image` pass plus optional `BufferA/BufferB/BufferC` passes and ping-pong feedback when a pass opts in.
 Key traits: WebGL2 + GLSL300, cached uniform locations, RGBA16F→RGBA8 fallback.
 Built-in uniforms include `u_time`, `u_dt`, `u_frame`, `u_resolution`, `u_aspect`, audio scalars (`u_energy`, etc.), and audio textures (`u_specTex`, `u_waveTex`).
+WebGL visualizers are WebGL2-only; when WebGL2 is unavailable the UI reports `WebGL2 required` and falls back to Safe Mode.
 
 ## Data flow
 Primary happy path: audio input is captured, analyzed, and streamed to the browser.

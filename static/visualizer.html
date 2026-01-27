@@ -226,9 +226,14 @@ let vizErrorInfo = null;
 
 function errorMessage(err){
   if(!err) return "";
-  if(typeof err === "string") return err;
-  if(err.message) return err.message;
-  return String(err);
+  let msg = "";
+  if(typeof err === "string") msg = err;
+  else if(err.message) msg = err.message;
+  else msg = String(err);
+  if(msg && msg.includes("WebGL2 not available")){
+    return "WebGL2 required";
+  }
+  return msg;
 }
 
 function errorStack(err){
