@@ -368,7 +368,7 @@ export class TunnelWebGL2MP {
 
     // more range + lower exponent so mid-level audio moves speed a lot
     const base = 8.0;
-    const target = base + 0.25 * (520.0 * Math.pow(drive, 0.85) + 320.0 * impact);
+    const target = base + 0.20 * (520.0 * Math.pow(drive, 0.85) + 320.0 * impact);
 
     const atk = 1 - Math.exp(-dt * 10.0);
     const rel = 1 - Math.exp(-dt * 3.0);

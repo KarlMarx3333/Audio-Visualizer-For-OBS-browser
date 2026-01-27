@@ -31,6 +31,10 @@ VISUALIZERS = [
     {"id": "feedback", "name": "Feedback Mirror (WebGL2 Multipass)", "renderer": "webgl"},
 ]
 VISUALIZER_IDS = {v["id"] for v in VISUALIZERS}
+_METRICS_FMT = {
+    1: "<fff",
+    2: "<fffff",
+}
 
 
 def _static_dir() -> Path:
@@ -203,12 +207,17 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
         try:
             last_sent = -1
             while True:
-                frame_id, ts, td, spec, rms, peak, corr = analyzer.get_latest()
-                if frame_id == last_sent:
+                fid = analyzer.peek_frame_id()
+                if fid == last_sent:
                     fps = max(10, int(getattr(cfg, "fps_cap", 60)))
                     await asyncio.sleep(max(0.001, 1.0 / (fps * 4.0)))
                     continue
+
+                frame_id, ts, td, spec, rms, peak, corr = analyzer.get_latest_refs()
+                if frame_id == last_sent:
+                    continue
                 last_sent = frame_id
+
                 ch = int(td.shape[1])
                 td_len = int(td.shape[0])
                 sp_len = int(spec.shape[0])
@@ -217,12 +226,15 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
                 rms_arr = (rms + [0.0, 0.0])[:ch]
                 peak_arr = (peak + [0.0, 0.0])[:ch]
                 corr_val = corr if corr is not None else float("nan")
-                metrics = struct.pack("<" + ("f"*ch) + ("f"*ch) + "f",
-                                      *[float(x) for x in rms_arr],
-                                      *[float(x) for x in peak_arr],
-                                      float(corr_val))
-                td_bytes = td.astype("float32", copy=False).tobytes(order="C")
-                spec_bytes = spec.astype("float32", copy=False).tobytes(order="C")
+                fmt = _METRICS_FMT.get(ch) or ("<" + ("f" * ch) + ("f" * ch) + "f")
+                metrics = struct.pack(
+                    fmt,
+                    *[float(x) for x in rms_arr],
+                    *[float(x) for x in peak_arr],
+                    float(corr_val),
+                )
+                td_bytes = td.tobytes(order="C")
+                spec_bytes = spec.tobytes(order="C")
                 await ws.send_bytes(header + metrics + td_bytes + spec_bytes)
         except WebSocketDisconnect:
             pass
