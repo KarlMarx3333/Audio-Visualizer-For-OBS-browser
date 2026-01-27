@@ -235,6 +235,7 @@ export class TunnelWebGL2MP {
     this._camZ = 0;
     this._speed = 0;
     this._eSm = 0;
+    this._agc = 1.0;
 
     // cache custom uniform location once
     this._uCamZLoc = null;
@@ -285,24 +286,70 @@ export class TunnelWebGL2MP {
     else if (frame && isFiniteNumber(frame.frame)) frameIndex = frame.frame | 0;
     else frameIndex = (this._frame = (this._frame + 1) | 0);
 
-    // Ensure audio scalars exist (some builds may not populate bands strongly)
+    // --- Audio: derive bands from spectrum + mini-AGC so values land in 0..1 ---
     const spec = frame && (frame.spectrum || frame.spec);
-    let bass = frame && isFiniteNumber(frame.bass) ? frame.bass : NaN;
-    let mid = frame && isFiniteNumber(frame.mid) ? frame.mid : NaN;
-    let high = frame && isFiniteNumber(frame.high) ? frame.high : NaN;
-    let energy = frame && isFiniteNumber(frame.energy) ? frame.energy : NaN;
+    const specLen = (spec && spec.length) ? (spec.length | 0) : 0;
 
-    if (spec && spec.length) {
-      if (!isFiniteNumber(bass)) bass = bandAvg(spec, 0.00, 0.06);
-      if (!isFiniteNumber(mid)) mid = bandAvg(spec, 0.10, 0.30);
-      if (!isFiniteNumber(high)) high = bandAvg(spec, 0.40, 0.95);
-      if (!isFiniteNumber(energy)) energy = bandAvg(spec, 0.00, 1.00);
+    // always compute from spectrum (don't trust precomputed frame.bass; it's raw & tiny)
+    let bass = 0, mid = 0, high = 0, energy = 0;
+    if (specLen > 0) {
+      bass = bandAvg(spec, 0.00, 0.06);   if (!isFiniteNumber(bass)) bass = 0;
+      mid  = bandAvg(spec, 0.10, 0.30);   if (!isFiniteNumber(mid))  mid  = 0;
+      high = bandAvg(spec, 0.40, 0.95);   if (!isFiniteNumber(high)) high = 0;
+      energy = bandAvg(spec, 0.00, 1.00); if (!isFiniteNumber(energy)) energy = 0;
     }
 
-    bass = clamp01(isFiniteNumber(bass) ? bass : 0);
-    mid = clamp01(isFiniteNumber(mid) ? mid : 0);
-    high = clamp01(isFiniteNumber(high) ? high : 0);
-    energy = clamp01(isFiniteNumber(energy) ? energy : (bass + mid + high) / 3);
+    let userGain = (frame && isFiniteNumber(frame.gain)) ? frame.gain : 1.0;
+    if (!(userGain > 0)) userGain = 1.0;
+
+    // estimate amplitude level from peak/rms or spectrum scan
+    let peak0 = (frame && frame.peak && frame.peak.length) ? (frame.peak[0] || 0) : 0;
+    let rms0  = (frame && frame.rms  && frame.rms.length)  ? (frame.rms[0]  || 0) : 0;
+
+    let scanPeak = 0;
+    if (specLen > 0) {
+      const step = Math.max(1, (specLen / 96) | 0);
+      for (let i = 2; i < specLen; i += step) {
+        const v = spec[i];
+        const fv = Number.isFinite(v) ? v : 0;
+        if (fv > scanPeak) scanPeak = fv;
+      }
+    }
+
+    let ampLevel = (Number.isFinite(peak0) && peak0 > 0) ? peak0
+                : ((Number.isFinite(rms0) && rms0 > 0) ? (rms0 * 2.0) : scanPeak);
+    if (!(ampLevel > 0)) ampLevel = 1e-4;
+
+    // AGC: aim for a stable visual level (and allow stronger than other viz)
+    const nearSilence = (energy < 1e-4) && (ampLevel * userGain < 0.02);
+    const targetLevel = 0.40;
+
+    let desired = this._agc;
+    if (!nearSilence) {
+      desired = targetLevel / (ampLevel * userGain);
+      if (desired < 0.35) desired = 0.35;
+      else if (desired > 6.0) desired = 6.0;
+    }
+
+    const atkAgc = 1 - Math.exp(-dt * 1.2);
+    const relAgc = 1 - Math.exp(-dt * 0.35);
+    const kAgc = desired > this._agc ? atkAgc : relAgc;
+    this._agc += (desired - this._agc) * kAgc;
+
+    const effGain = userGain * this._agc;
+
+    // compress -> [0..1]
+    const COMP_K = 18.0;
+    const COMP_D = Math.log1p(COMP_K);
+    const comp01 = (x) => {
+      const v = Math.max(0, x);
+      return clamp01(Math.log1p(v * COMP_K) / COMP_D);
+    };
+
+    bass   = comp01(bass * effGain);
+    mid    = comp01(mid  * effGain);
+    high   = comp01(high * effGain);
+    energy = comp01(energy * effGain);
 
     if (frame) {
       frame.bass = bass;
@@ -312,19 +359,24 @@ export class TunnelWebGL2MP {
     }
 
     // Smooth, audio-driven forward speed with transient kick (dt-invariant).
-    const drive = 0.65 * energy + 0.65 * bass + 0.35 * mid;
-    const eAtk = 1 - Math.exp(-dt * 4.0);
+    const drive = clamp01(0.80 * energy + 1.00 * bass + 0.20 * mid);
+
+    // faster transient tracking so kicks punch speed
+    const eAtk = 1 - Math.exp(-dt * 6.0);
     this._eSm += (energy - this._eSm) * eAtk;
     const impact = Math.max(0, energy - this._eSm);
 
-    const base = 6.0;
-    const target = base + 260.0 * Math.pow(drive, 1.35) + 150.0 * impact;
-    const atk = 1 - Math.exp(-dt * 6.0);
-    const rel = 1 - Math.exp(-dt * 2.0);
+    // more range + lower exponent so mid-level audio moves speed a lot
+    const base = 8.0;
+    const target = base + 0.25 * (520.0 * Math.pow(drive, 0.85) + 320.0 * impact);
+
+    const atk = 1 - Math.exp(-dt * 10.0);
+    const rel = 1 - Math.exp(-dt * 3.0);
     const k = target > this._speed ? atk : rel;
     this._speed += (target - this._speed) * k;
 
-    const speed = Math.min(160, this._speed);
+    // higher cap so you can actually see “warp” on loud parts
+    const speed = Math.min(240, this._speed);
     this._camZ += dt * speed;
     if (this._camZ > 1e6) this._camZ -= 1e6;
 
