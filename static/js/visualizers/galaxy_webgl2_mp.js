@@ -379,10 +379,14 @@ vec4 starsLayer(vec2 p, float cellSize, float density, float seed, float rMin, f
       int bi = bandAt(starPos);
       float b = u_bands[bi];
 
-      // ALWAYS visible baseline; audio only boosts brightness.
-      float base = 0.36; // visible even when silent
-      float boost = smoothstep(thr, 1.0, b);
-      float bright = base + 1.35 * boost;
+      // Gentle gating + outer-radius boost so AGC doesn't kill the rim.
+      float base = 0.36;
+      float b0 = sat((b - thr) / max(1e-4, 1.0 - thr));
+      float bP = pow(b0, 0.55);
+      float tR = sat(r / 1.35);
+      float outerBoost = mix(1.0, 2.6, pow(tR, 1.25));
+      float bright = base + 1.65 * bP * outerBoost;
+      bright = min(bright, 3.0);
 
       // Size distribution (many small, few big).
       float sz = mix(rMin, rMax, pow(rnd.y, 4.3));
@@ -473,9 +477,9 @@ void main(){
       col += bg0.rgb + bg1.rgb;
       a += 0.10 * (bg0.a + bg1.a);
 
-      vec4 s0 = starsLayer(p, 0.018, 0.72, 17.0, 0.0009, 0.0048, 0.22);
-      vec4 s1 = starsLayer(p, 0.040, 0.55, 91.0, 0.0016, 0.0105, 0.26);
-      vec4 s2 = starsLayer(p, 0.085, 0.33, 203.0, 0.0032, 0.0200, 0.30);
+      vec4 s0 = starsLayer(p, 0.018, 0.72, 17.0, 0.0009, 0.0048, 0.06);
+      vec4 s1 = starsLayer(p, 0.040, 0.55, 91.0, 0.0016, 0.0105, 0.08);
+      vec4 s2 = starsLayer(p, 0.085, 0.33, 203.0, 0.0032, 0.0200, 0.10);
 
       col += s0.rgb + s1.rgb + s2.rgb;
       a += (s0.a + s1.a + s2.a);
@@ -504,6 +508,7 @@ in vec2 v_uv;
 out vec4 fragColor;
 
 uniform float u_time;
+uniform vec2 u_resolution;
 
 uniform sampler2D iChannel0; // BufferA (nebula)  rgb=emissive, a=density
 uniform sampler2D iChannel1; // BufferB (stars)   rgb=star light, a=star alpha
@@ -511,27 +516,19 @@ uniform sampler2D iChannel2; // noise (same "noise" you already use)
 
 float luma(vec3 c){ return dot(c, vec3(0.2126, 0.7152, 0.0722)); }
 float sat(float x){ return clamp(x, 0.0, 1.0); }
+float hash12(vec2 p){ return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
 
-// Small isotropic blur so scattering is local (not center-biased).
-vec3 scatterBlur(vec2 uv, float r){
-  vec2 off = vec2(r, 0.0);
-  vec2 offD = vec2(r * 0.70710678, r * 0.70710678);
-
-  const float w0 = 0.28;
-  const float w1 = 0.12;
-  const float w2 = 0.06;
-
+// Small local blur; direction is rotated per-pixel to avoid axis streaks.
+vec3 scatterBlur(vec2 uv, vec2 dir, float r){
+  vec2 off = dir * r;
+  vec2 perp = vec2(-dir.y, dir.x) * r;
+  const float w0 = 0.40;
+  const float w1 = 0.15;
   vec3 acc = texture(iChannel1, uv).rgb * w0;
-  acc += texture(iChannel1, uv + vec2( off.x, 0.0)).rgb * w1;
-  acc += texture(iChannel1, uv + vec2(-off.x, 0.0)).rgb * w1;
-  acc += texture(iChannel1, uv + vec2(0.0,  off.x)).rgb * w1;
-  acc += texture(iChannel1, uv + vec2(0.0, -off.x)).rgb * w1;
-
-  acc += texture(iChannel1, uv + vec2( offD.x,  offD.y)).rgb * w2;
-  acc += texture(iChannel1, uv + vec2(-offD.x,  offD.y)).rgb * w2;
-  acc += texture(iChannel1, uv + vec2( offD.x, -offD.y)).rgb * w2;
-  acc += texture(iChannel1, uv + vec2(-offD.x, -offD.y)).rgb * w2;
-
+  acc += texture(iChannel1, uv + off).rgb * w1;
+  acc += texture(iChannel1, uv - off).rgb * w1;
+  acc += texture(iChannel1, uv + perp).rgb * w1;
+  acc += texture(iChannel1, uv - perp).rgb * w1;
   return acc;
 }
 
@@ -542,22 +539,28 @@ void main(){
 
   // Treat nebula + bright stars as dust density (participating media).
   float density = max(neb.a, pow(star.a, 0.65) * 0.35);
-  density = pow(sat(density), 0.55);
+  density = pow(sat(density), 0.48) * 1.18;
 
 
   // Add soft cloud breakup so it reads as "thick white dust", not a flat mask.
   float n = texture(iChannel2, v_uv * 1.35 + vec2(timeWrap * 0.01, -timeWrap * 0.008)).r;
-  float breakup = smoothstep(0.18, 0.92, n);
+  float breakup = smoothstep(0.12, 0.90, n);
   density *= breakup;
+  // Stable per-pixel blur direction avoids screen-space streaks.
+  vec2 pix = floor(v_uv * u_resolution);
+  float ang = hash12(pix) * 6.2831853;
+  vec2 blurDir = vec2(cos(ang), sin(ang));
 
   // Optical depth -> transmittance
-  const float DUST_K = 2.8;             // absorption/scatter scale (match in composite)
+  const float DUST_K = 4.1;             // higher absorption without extra taps
   float tau = density * DUST_K;
   float T = exp(-tau);
+  float densBase = 1.0 - T;
 
   // Incident light from stars (blurred) so clouds carry star color.
-  float blurR = mix(0.0015, 0.012, density);
-  vec3 illum = scatterBlur(v_uv, blurR);
+  float px = 1.0 / max(1.0, min(u_resolution.x, u_resolution.y));
+  float blurR = px * mix(1.5, 12.0, density);
+  vec3 illum = scatterBlur(v_uv, blurDir, blurR);
 
   float I = luma(illum);
 
@@ -567,16 +570,16 @@ void main(){
   vec3 white = vec3(I);
   vec3 tinted = mix(white, illum, TINT);
 
-  // Scattering intensity: more when medium is thick AND stars are bright.
-  float scatter = (1.0 - T) * sat(I * 3.0);
+  // Keep density-driven visibility, but with a modest floor to prevent flashing.
+  float starTerm = 0.25 + 0.75 * sat(I * 1.8);
+  float scatter = densBase * starTerm;
+  scatter = max(scatter, 0.12 * densBase);
+  scatter += 0.02 * density;
 
-  // Tiny base term so clouds exist even with dim stars (optional; set to 0.0 if you hate it)
-  scatter += 0.03 * density;
+  vec3 col = tinted * (0.80 * scatter);
 
-  vec3 col = tinted * (0.95 * scatter);
-
-  // Keep overlay-safe (don’t hard-opaque the screen)
-  float a = sat(scatter) * 0.65;
+  // Alpha follows density with a small floor, not the star spikes.
+  float a = sat(max(scatter, 0.16 * densBase)) * 0.76;
 
   fragColor = vec4(col, a);
 }
@@ -679,7 +682,7 @@ export class GalaxyWebGL2MP {
   static name = "Galaxy (Nebula + Stars by Band) (WebGL2 Multipass)";
   static renderer = "webgl";
 
-  constructor(canvas) {
+  constructor(canvas, opts = {}) {
     this.canvas = canvas;
     const gl = canvas.getContext("webgl2", {
       alpha: true,
@@ -725,6 +728,10 @@ export class GalaxyWebGL2MP {
       floorDown: 0.60,
       floorUp: 8.00,
       refDecay: 1.75,
+      refAttack: 0.18,
+      refRelease: 2.25,
+      refScale: 2.2,
+      bandGamma: 0.65,
 
       // AGC (slow normalization across tracks)
       loudAttack: 0.55,
@@ -740,11 +747,31 @@ export class GalaxyWebGL2MP {
       twist: 7.2,
       core: 1.25,
       starBase: 1.55,
+
+      // pass scales (performance knobs; keep stars crisp by default)
+      nebulaPassScale: 0.75,
+      starsPassScale: 1.00,
+      dustPassScale: 0.60,
     };
+
+    if (opts && typeof opts === "object") {
+      if (isFiniteNumber(opts.nebulaPassScale)) {
+        this._params.nebulaPassScale = Math.min(1.0, Math.max(0.5, opts.nebulaPassScale));
+      }
+      if (isFiniteNumber(opts.starsPassScale)) {
+        this._params.starsPassScale = Math.min(1.0, Math.max(0.5, opts.starsPassScale));
+      }
+      if (isFiniteNumber(opts.dustPassScale)) {
+        this._params.dustPassScale = Math.min(1.0, Math.max(0.5, opts.dustPassScale));
+      }
+    }
 
     const self = this;
     const passes = PASS_SPECS.map((p) => {
       const spec = { ...p };
+      if (spec.name === "BufferA") spec.scale = self._params.nebulaPassScale;
+      else if (spec.name === "BufferB") spec.scale = self._params.starsPassScale;
+      else if (spec.name === "BufferC") spec.scale = self._params.dustPassScale;
       spec.uniforms = function (gl2, program) {
         // Both BufferA and BufferB consume the same uniform set.
         if (spec.name === "BufferA") {
@@ -818,7 +845,7 @@ export class GalaxyWebGL2MP {
       samplerate,
       fftSize,
       fMin: 20,
-      fMax: 20000,
+      fMax: 16000,
     });
 
     this._bandStart.set(map.startBins);
@@ -861,10 +888,13 @@ export class GalaxyWebGL2MP {
 
     const kFloorDown = expSmoothingK(dt, P.floorDown);
     const kFloorUp = expSmoothingK(dt, P.floorUp);
-    const decayRef = Math.exp(-dt / Math.max(1e-6, P.refDecay));
+    const kRefUp = expSmoothingK(dt, P.refAttack);
+    const kRefDn = expSmoothingK(dt, P.refRelease);
 
     let sumN = 0;
     const eps = 1e-6;
+    const refScale = (P.refScale && P.refScale > eps) ? P.refScale : 1.0;
+    const bandGamma = (P.bandGamma && P.bandGamma > eps) ? P.bandGamma : 1.0;
 
     for (let i = 0; i < this.BAND_COUNT; i++) {
       const s = this._bandStart[i] | 0;
@@ -885,15 +915,18 @@ export class GalaxyWebGL2MP {
 
       const adj = Ei > Fi ? (Ei - Fi) : 0;
 
-      // Reference peak with decay
-      const prevR = this._ref[i];
-      const Ri = adj > prevR ? adj : (prevR * decayRef);
-      this._ref[i] = Ri > eps ? Ri : eps;
+      // Level-follower reference (attack/release), seeded to avoid intro slam.
+      let prevR = this._ref[i];
+      if (!(prevR > 1e-8)) prevR = adj;
+      const kR = adj > prevR ? kRefUp : kRefDn;
+      let Ri = prevR + (adj - prevR) * kR;
+      if (Ri < eps) Ri = eps;
+      this._ref[i] = Ri;
 
-      // Per-band normalized (0..1)
-      const ni = clamp01(adj / (Ri + eps));
+      // Soft-saturating normalization with headroom (no hard clamp collapse).
+      const x = adj / (Ri * refScale + eps);
+      const ni = x / (1 + x);
       sumN += ni;
-
       this._bands[i] = ni;
     }
 
@@ -921,7 +954,8 @@ export class GalaxyWebGL2MP {
     let mids = 0, highs = 0, mN = 0, hN = 0;
 
     for (let i = 0; i < this.BAND_COUNT; i++) {
-      const bi = clamp01(this._bands[i] * this._g);
+      let bi = clamp01(this._bands[i] * this._g);
+      bi = Math.pow(bi, bandGamma);
       this._bands[i] = bi;
 
       if (i >= i0 && i < i1) { mids += bi; mN++; }

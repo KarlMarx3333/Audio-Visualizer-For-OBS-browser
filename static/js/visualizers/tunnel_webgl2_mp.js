@@ -30,6 +30,7 @@ uniform int u_specLen;
 
 // custom (set from JS)
 uniform float u_camZ;
+uniform int u_steps;
 
 #define TAU 6.28318530718
 
@@ -98,7 +99,7 @@ void main(){
   float lookGain = 1.10;      // how much we aim into the turn
 
   // Ring stack tuning
-  const int STEPS = 120;
+  const int STEPS_MAX = 120;
   float spacing = 1.65;               // ring spacing in world-z
   float baseZ = floor(camZ / spacing) * spacing;
 
@@ -112,7 +113,8 @@ void main(){
   // brightness scaling (no trails; audio should still pop)
   float bright = (0.75 + 1.10*bass + 0.25*en) * (1.15 + 0.35*g);
 
-  for (int j = 1; j <= STEPS; j++){
+  for (int j = 1; j <= STEPS_MAX; j++){
+    if (j > u_steps) break;
     float i = float(j);
     float realZ = baseZ + i * spacing;
     float screenZ = realZ - camZ;     // >0
@@ -125,6 +127,7 @@ void main(){
     // Boost distant rings so far portals stay bright/visible.
     float farBoost = mix(1.0, 2.2, smoothstep(18.0, 80.0, screenZ));
     wZ *= farBoost;
+    if (wZ * bright < 0.0008) break;
 
     // portal radius (classic 1/screenZ)
     float r = (0.98 + 0.08*sin(realZ*0.07)) * invZ;
@@ -187,12 +190,29 @@ void main(){
 }
 `;
 
-const PASS_SPECS = [{ name: "Image", fs: TUNNEL_FS }];
+const TUNNEL_BLIT_FS = `#version 300 es
+precision highp float;
+in vec2 v_uv;
+out vec4 fragColor;
+uniform sampler2D iChannel0;
+void main(){ fragColor = texture(iChannel0, v_uv); }
+`;
+
+const PASS_SPECS = [
+  { name: "BufferA", fs: TUNNEL_FS, scale: 0.70 },
+  { name: "Image", fs: TUNNEL_BLIT_FS, inputs: { 0: "BufferA" } },
+];
 
 function isFiniteNumber(v) {
   return typeof v === "number" && Number.isFinite(v);
 }
 function clamp01(x) { return x < 0 ? 0 : x > 1 ? 1 : x; }
+function clampInt(x, lo, hi) {
+  const v = x | 0;
+  if (v < lo) return lo;
+  if (v > hi) return hi;
+  return v;
+}
 function bandAvg(spec, a0, a1) {
   if (!spec || !spec.length) return NaN;
   const n = spec.length;
@@ -210,7 +230,7 @@ export class TunnelWebGL2MP {
   static name = "Tunnel / Warp Speed (WebGL2 Multipass)";
   static renderer = "webgl";
 
-  constructor(canvas) {
+  constructor(canvas, opts = {}) {
     this.canvas = canvas;
 
     const gl = canvas.getContext("webgl2", {
@@ -236,21 +256,43 @@ export class TunnelWebGL2MP {
     this._speed = 0;
     this._eSm = 0;
     this._agc = 1.0;
+    this._params = { renderScale: 0.70, stepsMin: 64, stepsMax: 120 };
+    if (opts && typeof opts === "object") {
+      if (isFiniteNumber(opts.renderScale)) {
+        this._params.renderScale = Math.min(1.0, Math.max(0.5, opts.renderScale));
+      }
+      if (isFiniteNumber(opts.stepsMin)) {
+        this._params.stepsMin = clampInt(Math.round(opts.stepsMin), 16, 120);
+      }
+      if (isFiniteNumber(opts.stepsMax)) {
+        this._params.stepsMax = clampInt(Math.round(opts.stepsMax), 16, 120);
+      }
+    }
+    if (this._params.stepsMin > this._params.stepsMax) {
+      const t = this._params.stepsMin;
+      this._params.stepsMin = this._params.stepsMax;
+      this._params.stepsMax = t;
+    }
+    this._steps = this._params.stepsMax;
 
     // cache custom uniform location once
-    this._uCamZLoc = null;
+    this._uCamZLocA = null;
+    this._uStepsLocA = null;
 
     const self = this;
-    const passes = [
-      {
-        name: PASS_SPECS[0].name,
-        fs: PASS_SPECS[0].fs,
-        uniforms(gl2, program) {
-          if (!self._uCamZLoc) self._uCamZLoc = gl2.getUniformLocation(program, "u_camZ");
-          if (self._uCamZLoc) gl2.uniform1f(self._uCamZLoc, self._camZ);
-        },
-      },
-    ];
+    const passes = PASS_SPECS.map((spec) => {
+      const pass = { ...spec };
+      if (pass.name === "BufferA") {
+        pass.scale = self._params.renderScale;
+        pass.uniforms = function uniforms(gl2, program) {
+          if (!self._uCamZLocA) self._uCamZLocA = gl2.getUniformLocation(program, "u_camZ");
+          if (!self._uStepsLocA) self._uStepsLocA = gl2.getUniformLocation(program, "u_steps");
+          if (self._uCamZLocA) gl2.uniform1f(self._uCamZLocA, self._camZ);
+          if (self._uStepsLocA) gl2.uniform1i(self._uStepsLocA, self._steps);
+        };
+      }
+      return pass;
+    });
 
     this.mp.setPasses(passes);
   }
@@ -358,6 +400,12 @@ export class TunnelWebGL2MP {
       frame.energy = energy;
     }
 
+    // Steps scale with drive: fewer steps when quiet, full quality on loud parts.
+    const stepsDrive = clamp01(0.65 * energy + 0.65 * bass + 0.35 * mid);
+    const stepsSpan = this._params.stepsMax - this._params.stepsMin;
+    const stepsTarget = this._params.stepsMin + stepsSpan * Math.pow(stepsDrive, 0.7);
+    this._steps = clampInt(Math.round(stepsTarget), this._params.stepsMin, this._params.stepsMax);
+
     // Smooth, audio-driven forward speed with transient kick (dt-invariant).
     const drive = clamp01(0.80 * energy + 1.00 * bass + 0.20 * mid);
 
@@ -388,6 +436,7 @@ export class TunnelWebGL2MP {
     this.mp = null;
     this.gl = null;
     this.canvas = null;
-    this._uCamZLoc = null;
+    this._uCamZLocA = null;
+    this._uStepsLocA = null;
   }
 }
