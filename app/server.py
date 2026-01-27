@@ -88,6 +88,7 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
             "visual_smoothing": s.visual_smoothing,
             "fft_size": s.fft_size,
             "fps_cap": s.fps_cap,
+            "paused": s.paused,
             "ws_clients": s.ws_clients,
             "metrics": {
                 "frame_id": s.metrics.frame_id,
@@ -131,6 +132,12 @@ def create_app(cfg: AppConfig, state: StateStore, audio: AudioEngine, analyzer: 
             "coerced": vid != requested,
             "visualizer": vid,
         })
+
+    @app.post("/api/pause")
+    async def api_set_pause(payload: Dict[str, Any]):
+        paused = bool(payload.get("paused", False))
+        state.update(paused=paused)
+        return JSONResponse({"ok": True, "paused": paused})
 
     @app.post("/api/options")
     async def api_set_options(payload: Dict[str, Any]):

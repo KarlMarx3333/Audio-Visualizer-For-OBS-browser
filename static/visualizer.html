@@ -60,6 +60,7 @@
         <div class="col" style="min-width:220px">
           <label>&nbsp;</label>
           <button id="fit">Fit</button>
+          <button id="pause">Pause</button>
         </div>
       </div>
       <div style="height:10px"></div>
@@ -106,6 +107,7 @@ const vizSel = document.getElementById("vizSel");
 const gainEl = document.getElementById("gain");
 const vsmoothEl = document.getElementById("vsmooth");
 const meta = document.getElementById("meta");
+const pauseBtn = document.getElementById("pause");
 const vizErrorPanel = document.getElementById("vizErrorPanel");
 const vizErrorViz = document.getElementById("vizErrorViz");
 const vizErrorMsg = document.getElementById("vizErrorMsg");
@@ -431,6 +433,9 @@ async function initViz(){
       if(st.visualizer_name && registry.get(st.visualizer_name)){
         vizName = st.visualizer_name;
       }
+      if(typeof st.paused === "boolean"){
+        setPaused(st.paused, { silent: true });
+      }
     }catch(e){}
   }
   vizSel.value = vizName;
@@ -469,6 +474,9 @@ async function pollState(){
     if(typeof st.visual_smoothing === "number"){
       vsmoothEl.value = String(st.visual_smoothing);
     }
+    if(typeof st.paused === "boolean" && st.paused !== paused){
+      setPaused(st.paused, { silent: true });
+    }
     if(!embed){
       const rms = (st.metrics?.rms||[]).map(x=>x.toFixed(4)).join(",");
       const peak = (st.metrics?.peak||[]).map(x=>x.toFixed(4)).join(",");
@@ -483,7 +491,7 @@ pollState();
 
 connectAudioWS({
   url: (location.protocol === "https:" ? "wss://" : "ws://") + location.host + "/ws/audio",
-  onFrame: (frame)=>{ latestFrame = frame; },
+  onFrame: (frame)=>{ if(!paused) latestFrame = frame; },
   onError: (err)=>{
     recordVizError(err, { id: vizName, phase: "audio", switchState: "not-attempted" });
   },
@@ -528,6 +536,48 @@ const frame = {
 let __lastAnimNow = performance.now();
 let __t = 0;
 let __frameId = 0;
+let paused = false;
+let rafId = null;
+
+function startLoop(){
+  if(paused) return;
+  if(rafId != null) return;
+  __lastAnimNow = performance.now();
+  rafId = requestAnimationFrame(tick);
+}
+
+function stopLoop(){
+  if(rafId == null) return;
+  cancelAnimationFrame(rafId);
+  rafId = null;
+}
+
+function setPaused(v, opts){
+  const next = !!v;
+  const silent = opts && opts.silent;
+  if (paused === next){
+    if(pauseBtn){
+      pauseBtn.textContent = next ? "Resume" : "Pause";
+    }
+    return;
+  }
+  paused = next;
+  if(pauseBtn){
+    pauseBtn.textContent = paused ? "Resume" : "Pause";
+  }
+  if(paused){
+    stopLoop();
+  }else{
+    startLoop();
+  }
+  if(!silent){
+    fetch("/api/pause", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ paused }),
+    }).catch(()=>{});
+  }
+}
 
 function smoothArray(prev, cur, alpha){
   if(!prev || prev.length !== cur.length){
@@ -581,8 +631,12 @@ function reportMutation(which){
   recordVizError(msg, { id: vizName, phase: "mutation", switchState: "not-attempted" });
 }
 
-function animate(){
-  requestAnimationFrame(animate);
+function tick(){
+  if(paused){
+    rafId = null;
+    return;
+  }
+  rafId = requestAnimationFrame(tick);
   if(!viz) return;
   if(_pendingFallback) return;
   if(_safeModeFailed && vizName === SAFE_VIZ_ID) return;
@@ -762,7 +816,26 @@ function animate(){
   }
 }
 resize();
-animate();
+if(!paused){
+  startLoop();
+}
+
+if(pauseBtn){
+  pauseBtn.addEventListener("click", ()=> setPaused(!paused));
+}
+
+window.addEventListener("keydown", (e)=>{
+  if(e.code !== "Space") return;
+  const t = e.target;
+  const tag = t && t.tagName ? t.tagName.toLowerCase() : "";
+  if(tag === "input" || tag === "select" || tag === "textarea") return;
+  e.preventDefault();
+  setPaused(!paused);
+});
+
+if(qs.get("pause") === "1"){
+  setPaused(true);
+}
 </script>
 </body>
 </html>
