@@ -58,10 +58,14 @@ class TrayApp:
             tuning_item = pystray.MenuItem("Audio Tuning (Tk unavailable)", None, enabled=False)
         else:
             tuning_item = pystray.MenuItem("Audio Tuning...", self._open_tuning)
+        paused = self.state.snapshot().paused
+        pause_label = "Resume Rendering" if paused else "Pause Rendering"
+        pause_item = pystray.MenuItem(pause_label, self._toggle_pause)
         self.icon.menu = pystray.Menu(
             pystray.MenuItem("Open UI", self._open_ui),
             tuning_info,
             tuning_item,
+            pause_item,
             pystray.Menu.SEPARATOR,
             pystray.MenuItem("Visualizers", viz_menu),
             pystray.MenuItem("Input Device", dev_menu),
@@ -81,6 +85,15 @@ class TrayApp:
         self.audio.configure(device_id=self.cfg.selected_device_id, device_name=self.cfg.selected_device_name,
                              samplerate=self.cfg.samplerate, channels=self.cfg.channels)
         self.audio.restart()
+
+    def _toggle_pause(self, icon, item):
+        paused = not self.state.snapshot().paused
+        self.state.update(paused=paused)
+        self._rebuild_menu()
+        try:
+            self.icon.update_menu()
+        except Exception:
+            pass
 
     def _open_tuning(self, icon, item):
         if tk is None:

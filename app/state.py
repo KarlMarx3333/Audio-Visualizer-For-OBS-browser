@@ -32,6 +32,7 @@ class AppState:
     visual_smoothing: float = 0.55
     fft_size: int = 2048
     fps_cap: int = 60
+    paused: bool = False
 
     metrics: Metrics = field(default_factory=Metrics)
     ws_clients: int = 0
@@ -60,6 +61,7 @@ class StateStore:
                 visual_smoothing=s.visual_smoothing,
                 fft_size=s.fft_size,
                 fps_cap=s.fps_cap,
+                paused=s.paused,
                 metrics=Metrics(
                     frame_id=s.metrics.frame_id,
                     ts=s.metrics.ts,

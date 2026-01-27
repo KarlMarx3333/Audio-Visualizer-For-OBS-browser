@@ -22,7 +22,7 @@ const FREQ_MAX_HZ = 16000.0;
 const BAND_AVG_RISE_TAU = 0.6;
 const BAND_AVG_FALL_TAU = 3.0;
 const BAND_AVG_SILENCE_TAU = 6.0;
-const NORM_CLAMP = 2.5;
+const NORM_CLAMP = 4.0;
 const NORM_EPS = 1e-4;
 const BAND_REF_HEADROOM = 1.6;
 const BAND_FLOOR_MIN = 0.0006;
@@ -65,11 +65,19 @@ float tex1D(sampler2D tex, int len, float u){
   return mix(a, b, f);
 }
 
-float logNorm(float x){
-  // Log compression for nicer spectrum dynamics.
+float logComp(float x){
+  // Log compression for nicer spectrum dynamics (unclamped).
   float k = 18.0;
   x = max(x, 0.0);
-  return clamp(log(1.0 + x*k) / log(1.0 + k), 0.0, 1.0);
+  return log(1.0 + x*k) / log(1.0 + k); // =1 at x=1, >1 above
+}
+
+float softCeil01(float lvl){
+  // lvl >= 0, maps lvl=1 -> 1.0, soft ceiling above.
+  float k = 1.7;
+  float a  = 1.0 - exp(-k*lvl);
+  float a1 = 1.0 - exp(-k*1.0);
+  return a / max(a1, 1e-6);
 }
 
 // NOT rainbow: cyan -> magenta (static by bin)
@@ -99,25 +107,29 @@ void main(){
   float idxF = floor(a01 * barsN);
   float tIdx = (idxF + 0.5) / barsN;
 
-  // Sector mask (crisp bars with AA)
-  float cell = fract(a01 * barsN);
-  float d = abs(cell - 0.5);
-  float aaA = fwidth(a01 * barsN);
-  float halfW = 0.33; // bar half-width in cell space (0..0.5)
-  float inSector = smoothstep(halfW, halfW - aaA, d);
-
   // Spectrum sample + tiny spatial smoothing (no temporal sluggishness)
   float s0 = tex1D(u_specTex, u_specLen, tIdx);
   float sL = tex1D(u_specTex, u_specLen, clamp(tIdx - 1.0/barsN, 0.0, 1.0));
   float sR = tex1D(u_specTex, u_specLen, clamp(tIdx + 1.0/barsN, 0.0, 1.0));
   float s = (sL + 2.0*s0 + sR) * 0.25;
 
-  float lvl = logNorm(s);
+  float lvl  = logComp(s);
+  float od   = max(lvl - 1.0, 0.0);
+  float w    = clamp(exp(1.6 * od), 1.0, 1.8);
+  float lvl01 = clamp(lvl, 0.0, 1.0);
+
+  // Sector mask (crisp bars with AA)
+  float cell = fract(a01 * barsN);
+  float d = abs(cell - 0.5);
+  float aaA = fwidth(a01 * barsN);
+  float halfW = mix(0.33, 0.40, clamp(w - 1.0, 0.0, 1.0)); // bar half-width in cell space (0..0.5)
+  float inSector = smoothstep(halfW, halfW - aaA, d);
 
   // Geometry
   float innerR = 0.15;  // base circle radius
   float maxLen = 0.25;  // max bar length
-  float barLen = maxLen * pow(lvl, 0.65);
+  float lenF = softCeil01(lvl);
+  float barLen = maxLen * pow(lenF, 0.9);
   float outerR = innerR + barLen;
 
   float aaR = fwidth(r) * 1.6;
@@ -129,10 +141,10 @@ void main(){
 
   // Peak hats (u_waveTex is peaks)
   float pk = tex1D(u_waveTex, u_waveLen, tIdx);
-  float pkLvl = logNorm(pk);
+  float pkLvl = logComp(pk);
   float pkR = innerR + maxLen * pow(pkLvl, 0.85);
 
-  float hatTh = 0.006;
+  float hatTh = mix(0.006, 0.008, clamp(w - 1.0, 0.0, 1.0));
   float hat = inSector * (1.0 - smoothstep(hatTh - aaR, hatTh + aaR, abs(r - pkR)));
 
   // Internal base circle (constant alpha; not energy-driven)
@@ -151,7 +163,7 @@ void main(){
 
   // Colors
   vec3 colBar = palette(tIdx);
-  colBar *= (0.35 + 1.8 * lvl);
+  colBar *= (0.35 + 1.8 * lvl01) * (1.0 + 0.25 * (w - 1.0));
   vec3 colHat = mix(colBar, vec3(1.0), 0.25);
 
   vec3 colCircle = mix(vec3(0.00, 0.90, 1.00), vec3(1.00, 0.18, 0.88), 0.5);

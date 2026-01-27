@@ -6,6 +6,7 @@ Tray app that captures mic input, computes analysis, and serves a localhost visu
 - V2-only visualizer host with a tray UI, local control page, and stable /render URL.
 - Safe Mode Oscilloscope fallback with on-screen error reporting if a visualizer fails.
 - WebGL2 multipass engine for GLSL 300 ES visualizers (fullscreen triangle + audio textures).
+- WebGL2 is required for WebGL visualizers; if unavailable the UI shows "WebGL2 required" and falls back to Safe Mode.
 - Current visualizers: Safe Mode Oscilloscope, Vectorscope, Chroma Ring, Plasma, Tunnel / Warp Speed, Feedback Mirror, Radial Spectrum, 3D Spectrum Dots, Galaxy.
 
 ## Install (Windows PowerShell)

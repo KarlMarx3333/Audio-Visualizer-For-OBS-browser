@@ -64,7 +64,7 @@ def main() -> None:
                 state.set_running()
 
             try:
-                fid, ts, td, spec, rms, peak, corr = analyzer.get_latest()
+                fid, ts, rms, peak, corr = analyzer.get_metrics()
                 state.update_metrics(frame_id=fid, ts=ts, rms=rms, peak=peak, corr=corr)
             except Exception:
                 pass
