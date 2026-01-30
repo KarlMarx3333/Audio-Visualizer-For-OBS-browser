@@ -32,6 +32,11 @@ const VISUALIZER_LOADERS = [
     exportName: "GalaxyWebGL2MP",
   },
   {
+    id: "led_cube",
+    path: "/static/js/visualizers/led_cube_webgl2_mp.js",
+    exportName: "LedCubeWebGL2MP",
+  },
+  {
     id: "spectrum3d",
     path: "/static/js/visualizers/3D_spectrum_webgl2_mp.js",
     exportName: "Spectrum3DWebGL2MP",

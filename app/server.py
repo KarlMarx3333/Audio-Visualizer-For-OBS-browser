@@ -26,6 +26,7 @@ VISUALIZERS = [
     {"id": "plasma", "name": "Plasma (WebGL2 Multipass)", "renderer": "webgl"},
     {"id": "radial_spectrum", "name": "Radial Spectrum (WebGL2 Multipass)", "renderer": "webgl"},
     {"id": "galaxy", "name": "Galaxy (Stars by Band) (WebGL2 Multipass)", "renderer": "webgl"},
+    {"id": "led_cube", "name": "Light-Panel Cube (Audio Tiles) (WebGL2 Multipass)", "renderer": "webgl"},
     {"id": "spectrum3d", "name": "3D Spectrum Dots (WebGL2 Multipass)", "renderer": "webgl"},
     {"id": "tunnel", "name": "Tunnel / Warp Speed (WebGL2 Multipass)", "renderer": "webgl"},
     {"id": "feedback", "name": "Feedback Mirror (WebGL2 Multipass)", "renderer": "webgl"},
