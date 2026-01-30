@@ -7,7 +7,7 @@ Tray app that captures mic input, computes analysis, and serves a localhost visu
 - Safe Mode Oscilloscope fallback with on-screen error reporting if a visualizer fails.
 - WebGL2 multipass engine for GLSL 300 ES visualizers (fullscreen triangle + audio textures).
 - WebGL2 is required for WebGL visualizers; if unavailable the UI shows "WebGL2 required" and falls back to Safe Mode.
-- Current visualizers: Safe Mode Oscilloscope, Vectorscope, Chroma Ring, Plasma, Tunnel / Warp Speed, Feedback Mirror, Radial Spectrum, 3D Spectrum Dots, Galaxy.
+- Current visualizers: Safe Mode Oscilloscope, Vectorscope, Chroma Ring, Plasma, Tunnel / Warp Speed, Feedback Mirror, Radial Spectrum, 3D Spectrum Dots, Galaxy, Light-Panel Cube.
 
 ## Install (Windows PowerShell)
 ```powershell
@@ -37,6 +37,7 @@ Direct, fixed visualizer links (no auto-switch):
 - http://127.0.0.1:8787/v/plasma?embed=1
 - http://127.0.0.1:8787/v/radial_spectrum?embed=1
 - http://127.0.0.1:8787/v/galaxy?embed=1
+- http://127.0.0.1:8787/v/led_cube?embed=1
 - http://127.0.0.1:8787/v/spectrum3d?embed=1
 - http://127.0.0.1:8787/v/tunnel?embed=1
 - http://127.0.0.1:8787/v/feedback?embed=1
@@ -70,6 +71,9 @@ The Gain/Smoothing sliders in the visualizer UI are read-only and mirror the tra
 
 **Galaxy (WebGL2 Multipass)** - nebula and starfield driven by band energy.
 ![Galaxy demo](Demo/galaxy_demo.webp)
+
+**Light-Panel Cube (Audio Tiles) (WebGL2 Multipass)** - LED tile cube with spectrum-mapped faces.
+![Light-Panel Cube demo](Demo/led_cube_demo.webp)
 
 **Feedback Mirror (WebGL2 Multipass)** - recursive feedback with mirrored motion.
 ![Feedback demo](Demo/feedback_demo.webp)
