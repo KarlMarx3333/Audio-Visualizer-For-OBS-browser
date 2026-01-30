@@ -15,6 +15,7 @@ Overlay-safe: background alpha = 0; cube remains readable even in silence.
 const BAND_COUNT = 64;
 const DEFAULT_TILES_N = 14; // tiles per face edge (NxN). 12-18 are reasonable.
 const TIME_WRAP_S = 10000;
+const TAU = Math.PI * 2;
 
 const LED_CUBE_FS = `#version 300 es
 precision highp float;
@@ -43,6 +44,8 @@ uniform float u_transient; // 0..1
 uniform float u_wavePos;    // 0..1
 uniform float u_waveOn;     // 0..1
 uniform float u_tiles;      // tiles per face edge
+uniform float u_rotX;       // radians
+uniform float u_rotY;       // radians
 
 // --- helpers ---
 
@@ -142,10 +145,10 @@ void main(){
   vec3 ro = vec3(0.0, 0.0, -2.35);
   vec3 rd = normalize(vec3(uv, 1.55));
 
-  // Rotation: steady spin (not audio-driven)
+  // Rotation: steady spin with time-varying rates (not audio-driven)
   float kick = saturate(u_transient);
-  float ax = u_time * 0.35;
-  float ay = u_time * 0.55;
+  float ax = u_rotX;
+  float ay = u_rotY;
   mat3 R = rotY(ay) * rotX(ax);
 
   // Transform ray into cube local space
@@ -386,6 +389,12 @@ export class LedCubeWebGL2MP {
     this._waveT = 999.0;
     this._waveCooldown = 0.0;
 
+    // Rotation phases (dt-driven, wrapped)
+    this._rotX = 0.0;
+    this._rotY = 0.0;
+    this._rotModX = 0.0;
+    this._rotModD = 1.7;
+
     // Tunables (safe ranges)
     this._params = {
       tilesN: DEFAULT_TILES_N,
@@ -476,6 +485,8 @@ export class LedCubeWebGL2MP {
       u_wavePos: gl2.getUniformLocation(program, "u_wavePos"),
       u_waveOn: gl2.getUniformLocation(program, "u_waveOn"),
       u_tiles: gl2.getUniformLocation(program, "u_tiles"),
+      u_rotX: gl2.getUniformLocation(program, "u_rotX"),
+      u_rotY: gl2.getUniformLocation(program, "u_rotY"),
     };
   }
 
@@ -486,6 +497,8 @@ export class LedCubeWebGL2MP {
     if (loc.u_wavePos) gl2.uniform1f(loc.u_wavePos, this._wavePos);
     if (loc.u_waveOn) gl2.uniform1f(loc.u_waveOn, this._waveOn);
     if (loc.u_tiles) gl2.uniform1f(loc.u_tiles, P.tilesN);
+    if (loc.u_rotX) gl2.uniform1f(loc.u_rotX, this._rotX);
+    if (loc.u_rotY) gl2.uniform1f(loc.u_rotY, this._rotY);
   }
 
   _ensureBandMap(frame) {
@@ -710,6 +723,15 @@ export class LedCubeWebGL2MP {
     if (dt < 0) dt = 0;
     if (dt > 0.1) dt = 0.1;
     this._lastT = t;
+
+    // Time-varying rotation rates (0.2..0.6), dt-driven, never equal.
+    this._rotModX = (this._rotModX + dt * 0.07) % TAU;
+    this._rotModD = (this._rotModD + dt * 0.11) % TAU;
+    const sx = 0.2 + 0.34 * (0.5 + 0.5 * Math.sin(this._rotModX)); // 0.2..0.54
+    const delta = 0.02 + 0.04 * (0.5 + 0.5 * Math.sin(this._rotModD)); // 0.02..0.06
+    const sy = sx + delta; // 0.22..0.60 (always != sx)
+    this._rotX = (this._rotX + dt * sx) % TAU;
+    this._rotY = (this._rotY + dt * sy) % TAU;
 
     let frameIndex = 0;
     if (frame && isFiniteNumber(frame.frameIndex)) frameIndex = frame.frameIndex | 0;
