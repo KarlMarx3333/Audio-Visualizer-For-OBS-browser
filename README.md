@@ -7,7 +7,7 @@ Tray app that captures mic input, computes analysis, and serves a localhost visu
 - Safe Mode Oscilloscope fallback with on-screen error reporting if a visualizer fails.
 - WebGL2 multipass engine for GLSL 300 ES visualizers (fullscreen triangle + audio textures).
 - WebGL2 is required for WebGL visualizers; if unavailable the UI shows "WebGL2 required" and falls back to Safe Mode.
-- Current visualizers: Safe Mode Oscilloscope, Vectorscope, Chroma Ring, Plasma, Tunnel / Warp Speed, Feedback Mirror, Radial Spectrum, 3D Spectrum Dots, Galaxy, Light-Panel Cube.
+- Current visualizers: Safe Mode Oscilloscope (Canvas2D), Vectorscope / Goniometer (Canvas2D), Chroma Ring / Pitch Classes (Canvas2D), Plasma (WebGL2 Multipass), Radial Spectrum (WebGL2 Multipass), Galaxy (Stars by Band) (WebGL2 Multipass), Light-Panel Cube (Audio Tiles) (WebGL2 Multipass), 3D Spectrum Dots (WebGL2 Multipass), Tunnel / Warp Speed (WebGL2 Multipass), Feedback Mirror (WebGL2 Multipass), Apollonian Fractures (WebGL2 Multipass).
 
 ## Install (Windows PowerShell)
 ```powershell
@@ -41,9 +41,10 @@ Direct, fixed visualizer links (no auto-switch):
 - http://127.0.0.1:8787/v/spectrum3d?embed=1
 - http://127.0.0.1:8787/v/tunnel?embed=1
 - http://127.0.0.1:8787/v/feedback?embed=1
+- http://127.0.0.1:8787/v/apollonian_fractures?embed=1
 
 ## Audio tuning (tray)
-Use the tray menu Audio Tuning... to adjust Gain (0.2..4.0) and Visual Smoothing (0.0..0.95).
+Use the tray menu Audio Tuning... to adjust Gain (0.2-4.0) and Visual Smoothing (0.0-0.95).
 Values persist in config.json and apply live, including OBS embed mode.
 The Gain/Smoothing sliders in the visualizer UI are read-only and mirror the tray values.
 
@@ -60,35 +61,33 @@ The Gain/Smoothing sliders in the visualizer UI are read-only and mirror the tra
 **Plasma (WebGL2 Multipass)** - layered plasma with audio-reactive glow.
 ![Plasma demo](Demo/plasma_demo.webp)
 
-**Tunnel / Warp Speed (WebGL2 Multipass)** - forward tunnel with audio-driven speed.
-![Tunnel demo](Demo/tunnel_warp_demo.webp)
-
 **Radial Spectrum (WebGL2 Multipass)** - circular spectrum bars with peak hats.
 ![Radial Spectrum demo](Demo/radial_spectrum_demo.webp)
 
-**3D Spectrum Dots (WebGL2 Multipass)** - 3D band field rendered as dots.
-![3D Spectrum Dots demo](Demo/3d_spectrum_demo.webp)
-
-**Galaxy (WebGL2 Multipass)** - nebula and starfield driven by band energy.
+**Galaxy (Stars by Band) (WebGL2 Multipass)** - nebula and starfield driven by band energy.
 ![Galaxy demo](Demo/galaxy_demo.webp)
 
 **Light-Panel Cube (Audio Tiles) (WebGL2 Multipass)** - LED tile cube with spectrum-mapped faces.
 ![Light-Panel Cube demo](Demo/led_cube_demo.webp)
 
+**3D Spectrum Dots (WebGL2 Multipass)** - 3D band field rendered as dots.
+![3D Spectrum Dots demo](Demo/3d_spectrum_demo.webp)
+
+**Tunnel / Warp Speed (WebGL2 Multipass)** - forward tunnel with audio-driven speed.
+![Tunnel demo](Demo/tunnel_warp_demo.webp)
+
 **Feedback Mirror (WebGL2 Multipass)** - recursive feedback with mirrored motion.
 ![Feedback demo](Demo/feedback_demo.webp)
 
+**Apollonian Fractures (WebGL2 Multipass)** - audio-reactive apollonian fractal with warp and ring shimmer.
+![Apollonian Fractures demo](Demo/apollonian_fractures_demo.webp)
+
 ## Credits / attributions
-- Fractal Torus Tunnel (WebGL): adapted from Shadertoy shader "Fractal Toras Tunnel"
-  Created by netgrind (2017-05-16) https://www.shadertoy.com/view/ld2yDD
-- Tunnel / Warp Speed (WebGL): inspired by Shadertoy shader "Disco tunnel"
-  Created by WAHa_06x36 (2018-05-08) https://www.shadertoy.com/view/XstfzB
-- Radial Spectrum (WebGL2 Multipass): inspired by Shadertoy shader "Radial Audio Visualizer"
-  Created by Rafbeam (2018-04-21) https://www.shadertoy.com/view/ldtBRN
-- 3D Spectrum Dots (WebGL2 Multipass): inspired by Shadertoy shader "Video Heightfield" (audio heightfield variant)
-  Created by huttarl (2013-03-20) (URL not specified in source header)
-- Video Heightfield (reference): original shader cited by 3D Spectrum Dots
-  Created by @simesgreen https://www.shadertoy.com/view/Xss3zr
+- Tunnel / Warp Speed (WebGL2 Multipass): inspired by Shadertoy shader "Disco tunnel" by WAHa_06x36 (2018-05-08) https://www.shadertoy.com/view/XstfzB
+- Radial Spectrum (WebGL2 Multipass): inspired by Shadertoy shader "Radial Audio Visualizer" by Rafbeam (2018-04-21) https://www.shadertoy.com/view/ldtBRN
+- 3D Spectrum Dots (WebGL2 Multipass): inspired by Shadertoy shader "Video Heightfield" (audio heightfield variant) by huttarl (2013-03-20); reference shader by @simesgreen https://www.shadertoy.com/view/Xss3zr
+- Light-Panel Cube (Audio Tiles) (WebGL2 Multipass): inspired by "Fork 3D Audio V ItsAlmostP 974" by ItsAlmostPG (2023-06-04) https://www.shadertoy.com/view/dt3XDl
+- Apollonian Fractures (WebGL2 Multipass): original Shadertoy "Apollonian Fractures" by otaviogood (2014-09-08) https://www.shadertoy.com/view/XdjSzD
 
 ## Creating Visualizers
 
