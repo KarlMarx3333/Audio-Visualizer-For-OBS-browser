@@ -2,8 +2,11 @@ import { MultiPassWebGL2 } from "/static/js/webgl/multipass_webgl2.js";
 
 /*
 Light-Panel Cube (WebGL2 Multipass)
+Inspired by Fork 3D Audio V ItsAlmostP 974 https://www.shadertoy.com/view/dt3XDl
+  Created by ItsAlmostPG in 2023-06-04
 
-- Renders only the OUTSIDE surface of a rotating cube (analytic ray-box intersection).
+Design notes:
+- Renders the outside surface of a rotating cube (analytic ray-box intersection).
 - Each face is subdivided into an NxN grid of LED-like tiles with clear gaps.
 - Each tile is assigned a stable band from log-spaced FFT bands (with slight deterministic jitter).
 - CPU-side audio: log bands -> per-band normalization -> slow AGC -> per-band energies (0..1).
