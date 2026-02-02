@@ -30,6 +30,7 @@ VISUALIZERS = [
     {"id": "spectrum3d", "name": "3D Spectrum Dots (WebGL2 Multipass)", "renderer": "webgl"},
     {"id": "tunnel", "name": "Tunnel / Warp Speed (WebGL2 Multipass)", "renderer": "webgl"},
     {"id": "feedback", "name": "Feedback Mirror (WebGL2 Multipass)", "renderer": "webgl"},
+    {"id": "apollonian_fractures", "name": "Apollonian Fractures (WebGL2 Multipass)", "renderer": "webgl"},
 ]
 VISUALIZER_IDS = {v["id"] for v in VISUALIZERS}
 _METRICS_FMT = {

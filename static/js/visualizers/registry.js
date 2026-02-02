@@ -46,6 +46,11 @@ const VISUALIZER_LOADERS = [
     path: "/static/js/visualizers/feedback_webgl2_mp.js",
     exportName: "FeedbackWebGL2MP",
   },
+  {
+    id: "apollonian_fractures",
+    path: "/static/js/visualizers/apollonian_fractures_webgl2_mp.js",
+    exportName: "ApollonianFracturesWebGL2MP",
+  }
 ];
 
 function logLoadError(id, err) {
