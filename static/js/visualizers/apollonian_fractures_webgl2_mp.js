@@ -130,10 +130,10 @@ void main(){
   uv.x *= u_aspect;
 
   // Audio shaping (lift lows so it *moves* even on quieter tracks)
-  float bass = pow(sat(u_bass),   0.40);
-  float mid  = pow(sat(u_mid),    0.40);
-  float high = pow(sat(u_high),   0.40);
-  float en   = pow(sat(u_energy), 0.35);
+  float bass = pow(sat(u_bass),   0.30);
+  float mid  = pow(sat(u_mid),    0.32);
+  float high = pow(sat(u_high),   0.32);
+  float en   = pow(sat(u_energy), 0.28);
   float g    = clamp(u_gain, 0.2, 4.0);
 
   // Drivers (BOUNDED — avoids “teleport / explode”)
@@ -241,7 +241,7 @@ function bandAvgHz(spec, samplerate, f0, f1) {
   return s / (i1 - i0 + 1);
 }
 
-const COMP_K = 18.0;
+const COMP_K = 50.0;
 const COMP_D = Math.log1p(COMP_K);
 function comp01(x) {
   const v = Math.max(0, x);
@@ -378,7 +378,7 @@ export class ApollonianFracturesWebGL2MP {
 
     const energyRaw = energyT;
     const kFloorDown = 1 - Math.exp(-dtRate / 0.6);
-    const kFloorUp = 1 - Math.exp(-dtRate / 6.0);
+    const kFloorUp = 1 - Math.exp(-dtRate / 12.0);
     const kFloor = energyRaw < this._floorE ? kFloorDown : kFloorUp;
     this._floorE += (energyRaw - this._floorE) * kFloor;
 
@@ -399,10 +399,10 @@ export class ApollonianFracturesWebGL2MP {
     const kL = energyT > this._L ? kLA : kLR;
     this._L = this._L + (energyT - this._L) * kL;
 
-    const targetLevel = 0.38;
+    const targetLevel = 0.65;
     let desired = targetLevel / (this._L + 1e-6);
     if (desired < 0.35) desired = 0.35;
-    else if (desired > 6.0) desired = 6.0;
+    else if (desired > 9.0) desired = 9.0;
 
     if (nearSilence) {
       const kSilence = 1 - Math.exp(-dtRate * 0.5);
@@ -424,7 +424,7 @@ export class ApollonianFracturesWebGL2MP {
     energyT = comp01(energyT * effGain);
 
     // Smooth so missing frames don't snap the look
-    const k = 1 - Math.exp(-dtRate * 4.0);
+    const k = 1 - Math.exp(-dtRate * 7.0);
     this._bass   += (bassT   - this._bass)   * k;
     this._mid    += (midT    - this._mid)    * k;
     this._high   += (highT   - this._high)   * k;
