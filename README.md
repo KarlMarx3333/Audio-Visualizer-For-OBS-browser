@@ -85,7 +85,7 @@ The Gain/Smoothing sliders in the visualizer UI are read-only and mirror the tra
 ## Credits / attributions
 - Tunnel / Warp Speed (WebGL2 Multipass): inspired by Shadertoy shader "Disco tunnel" by WAHa_06x36 (2018-05-08) https://www.shadertoy.com/view/XstfzB
 - Radial Spectrum (WebGL2 Multipass): inspired by Shadertoy shader "Radial Audio Visualizer" by Rafbeam (2018-04-21) https://www.shadertoy.com/view/ldtBRN
-- 3D Spectrum Dots (WebGL2 Multipass): inspired by Shadertoy shader "Video Heightfield" (audio heightfield variant) by huttarl (2013-03-20); reference shader by @simesgreen https://www.shadertoy.com/view/Xss3zr
+- 3D Spectrum Dots (WebGL2 Multipass): inspired by Shadertoy shader "Video Heightfield" (audio heightfield variant) by huttarl (2013-03-20); https://www.shadertoy.com/view/ldXGzN
 - Light-Panel Cube (Audio Tiles) (WebGL2 Multipass): inspired by "Fork 3D Audio V ItsAlmostP 974" by ItsAlmostPG (2023-06-04) https://www.shadertoy.com/view/dt3XDl
 - Apollonian Fractures (WebGL2 Multipass): original Shadertoy "Apollonian Fractures" by otaviogood (2014-09-08) https://www.shadertoy.com/view/XdjSzD
 
